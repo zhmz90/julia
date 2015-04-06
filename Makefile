@@ -37,7 +37,8 @@ CLEAN_TARGETS += clean-$(build_docdir)
 clean-$(build_docdir):
 	@-rm -fr $(abspath $(build_docdir))
 $(subst $(abspath $(JULIAHOME))/,,$(abspath $(build_docdir))): $(build_docdir)
-$(build_docdir):
+$(build_docdir): $(shell find examples)
+	@-rm -fr $@/examples
 	@mkdir -p $@/examples
 	@cp -R examples/*.jl $@/examples/
 	@cp -R examples/clustermanager $@/examples/
