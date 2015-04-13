@@ -193,6 +193,8 @@ given by ``«name»``. This name can be optionally followed by ``<:`` and
 an already-existing type, indicating that the newly declared abstract
 type is a subtype of this "parent" type.
 
+.. _Any_and_none:
+
 When no supertype is given, the default supertype is :obj:`Any` — a
 predefined abstract type that all objects are instances of and all types
 are subtypes of. In type theory, :obj:`Any` is commonly called "top"
@@ -634,7 +636,7 @@ union of no types is the "bottom" type, ``None``:
     julia> None
     Union()
 
-Recall from the `discussion above <#Any+and+None>`_ that ``None`` is the
+Recall from the `discussion above <#_Any_and_None>`_ that ``None`` is the
 abstract type which is the subtype of all other types, and which no
 object is an instance of. ``None`` is therefore synonymous with a zero-argument
 ``Union`` type, which has no argument types for objects to be instances of.
