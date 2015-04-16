@@ -177,16 +177,13 @@ appear before/after ``b`` (or zero if any order is permitted).
 Now, suppose that we have a 1d array ``A`` of values in Julia that we want
 to sort using the ``qsort`` function (rather than Julia's built-in ``sort``
 function). Before we worry about calling ``qsort`` and passing arguments,
-we need to write a comparison function that works for some arbitrary type
-``T``::
+we need to write a comparison function::
 
-    function mycompare{T}(a::T, b::T)
-        return convert(Cint, a < b ? -1 : a > b ? +1 : 0)::Cint
+    function mycompare(a, b)
+        return Cint(a < b ? -1 : a > b ? +1 : 0)
     end
 
-Notice that we have to be careful about the return type: ``qsort`` expects a function
-returning a C ``int``, so we must be sure to return ``Cint`` via a call to ``convert``
-and a ``typeassert``.
+``qsort`` expects a function returning a C ``int``, so we must be sure to return ``Cint``.
 
 In order to pass this function to C, we obtain its address using the function ``cfunction``::
 
@@ -203,8 +200,10 @@ The final call to ``qsort`` looks like this::
           A, length(A), sizeof(eltype(A)), mycompare_c)
 
 After this executes, ``A`` is changed to the sorted array ``[-2.7, 1.3, 3.1, 4.4]``.
-Note that Julia knows how to convert an array into a ``Ptr{Cdouble}``, how to compute
-the size of a type in bytes (identical to C's ``sizeof`` operator), and so on.
+Note that Julia takes care of converting the array to a
+``Ptr{Cdouble}``, computing the size of the element type in bytes, and
+so on.
+
 For fun, try inserting a ``println("mycompare($a,$b)")`` line into ``mycompare``, which
 will allow you to see the comparisons that ``qsort`` is performing (and to verify that
 it is really calling the Julia function that you passed to it).
@@ -215,16 +214,16 @@ Mapping C Types to Julia
 
 .. _mapping_c_types_to_julia:
 
-It is critical to exactly match the declared C type with its declaration
+It is necessary to exactly match the declared C type with its declaration
 in Julia. Inconsistencies can cause code that works correctly on one system
 to fail or produce indeterminate results on a different system.
 
 Note that no C header files are used anywhere in the process of calling C
-functions: you are responsible for making sure that your Julia types and
+functionsl; you are responsible for making sure that your Julia types and
 call signatures accurately reflect those in the C header file. [#f_clang_package]_
 
-Auto-conversion
-~~~~~~~~~~~~~~~
+Automatic Type Conversion
+~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Julia automatically converts each argument to a ``ccall`` to the specified
 type. For example, the following call::
@@ -304,9 +303,9 @@ There are several special types to be aware of, as no other type can be defined 
 :Signed: Exactly corresponds to the ``signed`` type annotation in C (or any ``INTEGER`` type in Fortran). Any Julia type that is not a subtype of ``Signed`` is assumed to be unsigned.
 :Ref{T}: Behaves like a ``Ptr{T}`` that owns its memory.
 :Array{T,N}:
-    When an array is passed to C as a ``Ptr{T}`` argument, it is
-    not reinterpret-cast: Julia requires that the element type of the
-    array matches ``T``, and then address of the first element is passed.
+    When an array is passed to C as a ``Ptr{T}`` argument, it is not reinterpreted or
+    cast to the expected type.  Julia requires that the array element type matches
+    ``T``, and then address of the first element is passed.
 
     Therefore, if an ``Array`` contains data in the wrong format, it will
     have to be explicitly converted using a call such as ``int32(a)``.
@@ -322,10 +321,10 @@ There are several special types to be aware of, as no other type can be defined 
     each element replaced by its ``cconvert`` version. This allows, for example, passing an ``argv``
     pointer array of type ``Vector{ByteString}`` to an argument of type ``Ptr{Ptr{Cchar}}``.
 
-
-On all systems we currently support, basic C/C++ value types may be
-translated to Julia types as follows. Every C type also has a corresponding
-Julia type with the same name, prefixed by C. This can help for writing portable code (and remembering that an int in C is not the same as an Int in Julia).
+The following tables give the correspondence between basic C/C++ and Fortran value
+types and Julia type.  Each C type also has a corresponding Julia type alias, which is
+useful for writing portable portable code (and remembering that an int in C is not the
+same as an Int in Julia).
 
 **System Independent**
 
@@ -424,38 +423,48 @@ C name                  Standard Julia Alias    Julia Base Type
                                                 ``UInt16`` (Windows)
 ======================  ======================  =======
 
-`Remember`: when calling a Fortran function, all inputs must be passed by reference, so all type correspondences
-above should contain an additional ``Ptr{..}`` or ``Ref{..}`` wrapper around their type specification.
+**Mapping Strings to C Types**
 
-`Warning`: For string arguments (``char*``) the Julia type should be ``Ptr{Cchar}``,
-not ``ASCIIString``. Similarly, for array arguments (``T[]`` or ``T*``), the Julia
-type should again be ``Ptr{T}``, not ``Vector{T}``.
+- For string arguments (``char*``) the Julia type should be ``Ptr{Cchar}``, not
+  ``ASCIIString``.
 
-`Warning`: Julia's ``Char`` type is 32 bits, which is not the same as the wide
-character type (``wchar_t`` or ``wint_t``) on all platforms.
+- Julia's ``Char`` type is 32 bits, which is not the same as the wide character type
+  (``wchar_t`` or ``wint_t``) on all platforms.
 
-`Note`: For ``wchar_t*`` arguments, the Julia type should be ``Ptr{Wchar_t}``,
-and data can be converted to/from ordinary Julia strings by the
-``wstring(s)`` function (equivalent to either ``utf16(s)`` or ``utf32(s)``
-depending upon the width of ``Cwchar_t``.    Note also that ASCII, UTF-8,
-UTF-16, and UTF-32 string data in Julia is internally NUL-terminated, so
-it can be passed to C functions expecting NUL-terminated data without making
-a copy.
+- For ``wchar_t*`` arguments, the Julia type should be ``Ptr{Wchar_t}``, and data can
+  be converted to/from ordinary Julia strings by the ``wstring(s)`` function
+  (equivalent to either ``utf16(s)`` or ``utf32(s)`` depending upon the width of
+  ``Cwchar_t``.
 
-`Note`: C functions that take an argument of the type ``char**`` can be called by using
-a ``Ptr{Ptr{UInt8}}`` type within Julia. For example,
-C functions of the form::
+- ASCII, UTF-8, UTF-16, and UTF-32 string data in Julia is internally NUL-terminated,
+  so it can be passed to C functions expecting NUL-terminated data without making a
+  copy.
+
+- C functions that take an argument of the type ``char**`` can be called by using
+  a ``Ptr{Ptr{UInt8}}`` type within Julia.
+
+  For example, C functions of the form::
 
     int main(int argc, char **argv);
 
-can be called via the following Julia code::
+  can be called using the following Julia code::
 
     argv = [ "a.out", "arg1", "arg2" ]
     ccall(:main, Int32, (Int32, Ptr{Ptr{UInt8}}), length(argv), argv)
 
-`Note`: A C function declared to return ``Void`` will return the value ``nothing`` in Julia.
+**Miscellaneous Notes**
 
-Struct Type correspondences
+- A C function declared to return ``Void`` will return the value ``nothing`` in Julia.
+
+- When calling a Fortran function, all inputs must be passed by reference, so all type
+  correspondences above should contain an additional ``Ptr{..}`` or ``Ref{..}`` wrapper
+  around their type specification.
+
+- As with ``char*`` arguments, for array arguments (``T[]`` or ``T*``), the Julia type
+  should be ``Ptr{T}``, and not ``Vector{T}``.
+
+
+Struct Type Correspondences
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Composite types, aka ``struct`` in C or ``STRUCTURE`` / ``RECORD`` in Fortran),
@@ -471,38 +480,39 @@ Instead, declare an immutable isbits type and use that instead.
 Unnamed structs are not possible in the translation to Julia.
 
 Packed structs and union declarations are not supported by Julia.
-
-You can get a near approximation of a ``union`` if you know, a priori,
+You can get an approximation of a ``union`` if you know,
 the field that will have the greatest size (potentially including padding).
 When translating your fields to Julia, declare the Julia field to be only
 of that type.
 
-Arrays of parameters must be expanded manually, currently
-(either inline, or in an immutable helper-type). For example::
+Arrays of parameters must be expanded manually, currently (either inline, or in an
+immutable helper-type). For example, this C struct::
 
-    in C:
     struct B {
         int A[3];
     };
     b_a_2 = B.A[2];
 
-    in Julia:
+must be written in Julia as::
+
     immutable B_A
         A_1::Cint
         A_2::Cint
         A_3::Cint
     end
+
     type B
         A::B_A
     end
+
     b_a_2 = B.A.(2)
 
 Arrays of unknown size are not supported.
 
-In the future, some of these restrictions may be reduced or eliminated.
+In the future, some of these restrictions may be eliminated.
 
 Memory Ownership
-~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~
 
 **malloc/free**
 
@@ -519,16 +529,11 @@ to be freed by an external library) is equally invalid.
 The choice of type-wrapper declaration strongly depends on who allocated the memory,
 and the declared type.
 In general, use ``T`` if the memory is intended to be allocated in
-(and managed by) Julia (with type-tag).
-Use ``Ptr{T}`` if the memory is expected to be populated by ``C`` (without type-tag).
+(and managed by) Julia (with a type-tag).
+Use ``Ptr{T}`` if the memory is expected to be populated by ``C`` (without a type-tag).
 Use ``Ref{T}`` if you have an ``isbits`` type,
-but you want to turn it into a pointer to a struct in another struct definition.
+but you want to turn it into a pointer to a struct in another struct definition. [#f_2818]_
 
-See issue #2818 for some work that needs to be done to simplify this so that Julia
-types can be used to recursively mirror c-style structs,
-without requiring as much manual management of the ``Ptr`` conversions.
-After #2818 is implemented, it will be true that an `Vector{T}` will be equivalent to
-an `Ptr{Ptr{T}}`. That is currently not true, and the conversion must be explicitly.
 
 Mapping C Functions to Julia
 ----------------------------
@@ -941,3 +946,9 @@ Chaining (parentheses optional, but recommended for readability)::
    and the primary fallback method for ``cconvert_gcroot`` is::
 
     cconvert_gcroot(T,x) = x
+
+.. [#f_2818] See issue #2818 for some work that needs to be done to simplify this so that
+   Julia types can be used to recursively mirror c-style structs, without requiring as
+   much manual management of the ``Ptr`` conversions.  After #2818 is implemented, it
+   will be true that an `Vector{T}` will be equivalent to an `Ptr{Ptr{T}}`. That is
+   currently not true, and the conversion must be explicitly.
