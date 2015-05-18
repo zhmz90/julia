@@ -1,7 +1,7 @@
 language: cpp
 os:
     - linux
-    #- osx # this build is running out of time frequently now, disable it until we can make the tests it runs faster / fewer
+    - osx # this build is running out of time frequently now, disable it until we can make the tests it runs faster / fewer
 env:
     - ARCH="i686"
     - ARCH="x86_64"
@@ -60,6 +60,6 @@ script:
     - cd .. && mv julia julia2
     - cp /tmp/julia/lib/julia/sys.ji local.ji && /tmp/julia/bin/julia-debug -J local.ji -e 'true' && rm local.ji
     - /tmp/julia/bin/julia-debug -e 'versioninfo()'
-    - cd /tmp/julia/share/julia/test && /tmp/julia/bin/julia-debug --check-bounds=yes runtests.jl all && /tmp/julia/bin/julia-debug --check-bounds=yes runtests.jl pkg
+    - cd /tmp/julia/share/julia/test && /tmp/julia/bin/julia-debug --check-bounds=yes runtests.jl libgit2 && /tmp/julia/bin/julia-debug --check-bounds=yes runtests.jl pkg
     - cd - && mv julia2 julia
     - echo "Ready for packaging..."
