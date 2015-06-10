@@ -14,6 +14,7 @@ immutable JLOptions
     cpu_target::Ptr{UInt8}
     nprocs::Int32
     machinefile::Ptr{UInt8}
+    interconnect::Ptr{UInt8}
     isinteractive::Int8
     color::Int8
     historyfile::Int8

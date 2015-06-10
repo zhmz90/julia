@@ -6,8 +6,10 @@ cd(dirname(@__FILE__)) do
     n = 1
     if net_on
         n = min(8, CPU_CORES, length(tests))
-        n > 1 && addprocs(n; exeflags=`--check-bounds=yes`)
-        blas_set_num_threads(1)
+        if n > 1
+            set_interconnect(IC_ALL_TO_ALL)
+            addprocs(n; exeflags=`--check-bounds=yes`)
+        end
     end
 
     @everywhere include("testdefs.jl")

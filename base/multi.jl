@@ -69,6 +69,11 @@ type WorkerConfig
     # Private dictionary used to store temporary information by Local/SSH managers.
     environ::Nullable{Dict}
 
+    # Connections to be setup depending on the network topology requested
+    ident::Nullable{Any}      # Worker as identified by the Cluster Manager. Currently unused.
+    # List of other worker idents this worker must connect with. Used with interconnect CUSTOM_IC. Currently unused.
+    connect_idents::Nullable{Array{Any, 1}}
+
     function WorkerConfig()
         wc = new()
         for n in 1:length(WorkerConfig.types)
@@ -152,6 +157,10 @@ end
 
 function send_msg_(w::Worker, kind, args, now::Bool)
     #println("Sending msg $kind")
+    if !((w.state == W_RUNNING) || (w.state == W_TERMINATING))
+        error("No connection between $(myid()) and $(w.id). Interconnect $(PGRP.interconnect)")
+    end
+
     io = w.w_stream
     lock(io.lock)
     try
@@ -207,16 +216,24 @@ let next_pid = 2    # 1 is reserved for the client (always)
     end
 end
 
+@enum Interconnect IC_MASTER_SLAVE IC_ALL_TO_ALL IC_CUSTOM
 type ProcessGroup
     name::AbstractString
     workers::Array{Any,1}
+    refs::Dict                  # global references
+    interconnect::Interconnect
 
-    # global references
-    refs::Dict
-
-    ProcessGroup(w::Array{Any,1}) = new("pg-default", w, Dict())
+    ProcessGroup(w::Array{Any,1}) = new("pg-default", w, Dict(), IC_MASTER_SLAVE)
 end
 const PGRP = ProcessGroup([])
+
+function set_interconnect(ic::Interconnect)
+    if nprocs() <= 1
+        PGRP.interconnect = ic
+    elseif PGRP.interconnect != ic
+        error("Workers with Interconnect $(PGRP.interconnect) already exist. Requested Interconnect $(ic) cannot be set.")
+    end
+end
 
 get_bind_addr(pid::Integer) = get_bind_addr(worker_from_id(pid))
 get_bind_addr(w::LocalProcess) = LPROC.bind_addr
@@ -343,14 +360,24 @@ function deregister_worker(pg, pid)
     pg.workers = filter(x -> !(x.id == pid), pg.workers)
     w = pop!(map_pid_wrkr, pid, nothing)
     if isa(w, Worker)
-        pop!(map_sock_wrkr, w.r_stream)
-        if w.r_stream != w.w_stream
-            pop!(map_sock_wrkr, w.w_stream)
+        if isdefined(w, :r_stream)
+            pop!(map_sock_wrkr, w.r_stream, nothing)
+            if w.r_stream != w.w_stream
+                pop!(map_sock_wrkr, w.w_stream, nothing)
+            end
         end
 
-        # Notify the cluster manager of this workers death
         if myid() == 1
+            # Notify the cluster manager of this workers death
             manage(w.manager, w.id, w.config, :deregister)
+            if PGRP.interconnect != IC_ALL_TO_ALL
+                for rpid in workers()
+                    try
+                        (rpid != 1) && remote_do(rpid, deregister_worker, pid)
+                    catch
+                    end
+                end
+            end
         end
     end
     push!(map_del_wrkr, pid)
@@ -858,6 +885,10 @@ function message_handler_loop(r_stream::AsyncStream, w_stream::AsyncStream, rr_n
                 self_pid = LPROC.id = deserialize(r_stream)
                 locs = deserialize(r_stream)
                 self_is_local = deserialize(r_stream)
+                ic = deserialize(r_stream)
+                ic = convert(Interconnect, ic)
+                set_interconnect(ic)
+
                 controller = Worker(1, r_stream, w_stream, cluster_manager)
                 register_worker(LPROC)
 
@@ -1061,6 +1092,7 @@ end
 # for launching the workers. All keyword arguments (plus a few default values)
 # are available as a dictionary to the `launch` methods
 function addprocs(manager::ClusterManager; kwargs...)
+
     params = merge(default_addprocs_params(), AnyDict(kwargs))
 
     # some libs by default start as many threads as cores which leads to
@@ -1102,7 +1134,23 @@ function addprocs(manager::ClusterManager; kwargs...)
 
     wait(t_launch)      # catches any thrown errors from the launch task
 
+    # Let all workers know the current set of valid workers. Useful
+    # for nprocs(), nworkers(), etc to return valid values on the workers.
+    # Redundant for all_to_all interconnects since stream close
+    # triggers cleanup of a worker
+    if PGRP.interconnect != IC_ALL_TO_ALL
+        for pid in workers()
+            remote_do(pid, set_valid_processes, procs())
+        end
+    end
+
     sort!(launched_q)
+end
+
+function set_valid_processes(plist)
+    for pid in setdiff(plist, procs())
+        Worker(pid)
+    end
 end
 
 
@@ -1190,22 +1238,25 @@ function create_worker(manager, wconfig)
     #   - each worker then sends a :join_complete back to the master along with its OS_PID and NUM_CORES
     # - once master receives a :join_complete it triggers rr_ntfy_join (signifies that worker setup is complete)
 
-    # need to wait for lower worker pids to have completed connecting, since the numerical value
-    # of pids is relevant to the connection process, i.e., higher pids connect to lower pids and they
-    # require the value of config.connect_at which is set only upon connection completion
+    join_list = []
+    if PGRP.interconnect == IC_ALL_TO_ALL
+        # need to wait for lower worker pids to have completed connecting, since the numerical value
+        # of pids is relevant to the connection process, i.e., higher pids connect to lower pids and they
+        # require the value of config.connect_at which is set only upon connection completion
 
-    lower_wlist = filter(x -> (x.id != 1) && (x.id < w.id) && (x.state == W_CREATED), PGRP.workers)
-    for wl in lower_wlist
-        if wl.state == W_CREATED
-            wait(wl.c_state)
+        lower_wlist = filter(x -> (x.id != 1) && (x.id < w.id) && (x.state == W_CREATED), PGRP.workers)
+        for wl in lower_wlist
+            if wl.state == W_CREATED
+                wait(wl.c_state)
+            end
         end
+
+        # filter list to workers in a running state
+        join_list = filter(x -> (x.id != 1) && (x.id < w.id) && (x.state==W_RUNNING), PGRP.workers)
     end
 
-    # filter list to workers in a running state
-    join_list = filter(x -> (x.id != 1) && (x.id < w.id) && (x.state==W_RUNNING), PGRP.workers)
-
     all_locs = map(x -> isa(x, Worker) ? (get(x.config.connect_at, ()), x.id, isa(x.manager, LocalManager)) : ((), x.id, true), join_list)
-    send_msg_now(w, :join_pgrp, w.id, all_locs, isa(w.manager, LocalManager))
+    send_msg_now(w, :join_pgrp, w.id, all_locs, isa(w.manager, LocalManager), PGRP.interconnect.val)
 
     @schedule manage(w.manager, w.id, w.config, :register)
     wait(rr_ntfy_join)

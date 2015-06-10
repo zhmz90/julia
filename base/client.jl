@@ -222,6 +222,7 @@ let reqarg = Set(UTF8String["--home",          "-H",
                             "--cpu-target",    "-C",
                             "--procs",         "-p",
                             "--machinefile",
+                            "--interconnect",  "-I",
                             "--color",
                             "--history-file",
                             "--startup-file",
@@ -261,6 +262,18 @@ let reqarg = Set(UTF8String["--home",          "-H",
             # startup worker
             if opts.worker != 0
                 start_worker() # does not return
+            end
+            # set interconnect mode. Must be processed before opts.nprocs
+            if opts.interconnect != C_NULL
+                global PGRP
+                ic = uppercase(bytestring(opts.interconnect))
+                if ic == "ALL_TO_ALL"
+                    PGRP.interconnect = IC_ALL_TO_ALL
+                elseif ic == "MASTER_SLAVE"
+                    PGRP.interconnect = IC_MASTER_SLAVE
+                elseif ic == "CUSTOM"
+                    PGRP.interconnect = IC_CUSTOM
+                end
             end
             # add processors
             if opts.nprocs > 0

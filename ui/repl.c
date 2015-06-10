@@ -65,7 +65,9 @@ static const char opts[]  =
     // parallel options
     " -p, --procs {N|auto}      Integer value N launches N additional local worker processes\n"
     "                           'auto' launches as many workers as the number of local cores\n"
-    " --machinefile <file>      Run processes on hosts listed in <file>\n\n"
+    " --machinefile <file>      Run processes on hosts listed in <file>\n"
+    " -I, --interconnect <interconnect>\n"
+    "                           Use <interconnect> strategy to setup connections between processes\n\n"
 
     // interactive options
     " -i                        Interactive mode; REPL runs and isinteractive() is true\n"
@@ -114,7 +116,7 @@ void parse_opts(int *argcp, char ***argvp)
            opt_bind_to,
            opt_handle_signals
     };
-    static char* shortopts = "+vhqFfH:e:E:P:L:J:C:ip:Ob:";
+    static char* shortopts = "+vhqFfH:e:E:P:L:J:C:ip:I:Ob:";
     static struct option longopts[] = {
         // exposed command line options
         // NOTE: This set of required arguments need to be kept in sync
@@ -131,6 +133,7 @@ void parse_opts(int *argcp, char ***argvp)
         { "cpu-target",      required_argument, 0, 'C' },
         { "procs",           required_argument, 0, 'p' },
         { "machinefile",     required_argument, 0, opt_machinefile },
+        { "interconnect",    required_argument, 0, 'I' },
         { "color",           required_argument, 0, opt_color },
         { "history-file",    required_argument, 0, opt_history_file },
         { "no-history-file", no_argument,       0, opt_no_history_file }, // deprecated
@@ -221,6 +224,9 @@ void parse_opts(int *argcp, char ***argvp)
             break;
         case opt_machinefile:
             jl_options.machinefile = strdup(optarg);
+            break;
+        case 'I': // Interconnect
+            jl_options.interconnect = strdup(optarg);
             break;
         case opt_color:
             if (!strcmp(optarg,"yes"))

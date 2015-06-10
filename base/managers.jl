@@ -193,6 +193,7 @@ function launch(manager::LocalManager, params::Dict, launched::Array, c::Conditi
         wconfig = WorkerConfig()
         wconfig.process = pobj
         wconfig.io = io
+
         push!(launched, wconfig)
     end
 
