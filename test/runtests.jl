@@ -2,12 +2,12 @@
 
 include("choosetests.jl")
 tests, net_on = choosetests(ARGS)
+topology(T_ALL_TO_ALL)
 cd(dirname(@__FILE__)) do
     n = 1
     if net_on
         n = min(8, CPU_CORES, length(tests))
         if n > 1
-            set_interconnect(IC_ALL_TO_ALL)
             addprocs(n; exeflags=`--check-bounds=yes`)
         end
     end

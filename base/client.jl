@@ -222,7 +222,7 @@ let reqarg = Set(UTF8String["--home",          "-H",
                             "--cpu-target",    "-C",
                             "--procs",         "-p",
                             "--machinefile",
-                            "--interconnect",  "-I",
+                            "--topology",      "-T",
                             "--color",
                             "--history-file",
                             "--startup-file",
@@ -263,16 +263,18 @@ let reqarg = Set(UTF8String["--home",          "-H",
             if opts.worker != 0
                 start_worker() # does not return
             end
-            # set interconnect mode. Must be processed before opts.nprocs
-            if opts.interconnect != C_NULL
+            # set topology mode. Must be processed before opts.nprocs
+            if opts.topology != C_NULL
                 global PGRP
-                ic = uppercase(bytestring(opts.interconnect))
-                if ic == "ALL_TO_ALL"
-                    PGRP.interconnect = IC_ALL_TO_ALL
-                elseif ic == "MASTER_SLAVE"
-                    PGRP.interconnect = IC_MASTER_SLAVE
-                elseif ic == "CUSTOM"
-                    PGRP.interconnect = IC_CUSTOM
+                topo_str = uppercase(bytestring(opts.topology))
+                if topo_str == "ALL_TO_ALL"
+                    topology(T_ALL_TO_ALL)
+                elseif topo_str == "MASTER_SLAVE"
+                    topology(T_MASTER_SLAVE)
+                elseif topo_str == "CUSTOM"
+                    topology(T_CUSTOM)
+                else
+                    throw(ArgumentError("Invalid topology arg value $(bytestring(opts.topology))."))
                 end
             end
             # add processors

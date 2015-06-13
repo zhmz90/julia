@@ -98,7 +98,7 @@ jl_options_t jl_options = { 0,    // quiet
                             NULL, // cpu_taget ("native", "core2", etc...)
                             0,    // nprocs
                             NULL, // machinefile
-                            NULL, // interconnect
+                            NULL, // topology
                             0,    // isinteractive
                             0,    // color
                             JL_OPTIONS_HISTORYFILE_ON, // historyfile
