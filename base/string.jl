@@ -181,6 +181,16 @@ function chr2ind(s::AbstractString, i::Integer)
     end
 end
 
+immutable EachStringIndex{I}
+    s::I
+end
+eachindex(s::AbstractString) = EachStringIndex(s)
+
+length(e::EachStringIndex) = length(e.s)
+start(e::EachStringIndex) = start(e.s)
+next(e::EachStringIndex, state) = (state, nextind(e.s, state))
+done(e::EachStringIndex, state) = done(e.s, state)
+
 typealias Chars Union{Char,AbstractVector{Char},Set{Char}}
 
 function search(s::AbstractString, c::Chars, i::Integer)
