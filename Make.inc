@@ -356,7 +356,6 @@ JCXXFLAGS += -std=c++11
 endif
 
 JFFLAGS = -O2 $(fPIC)
-JF2CFLAGS = -ff2c -fno-second-underscore
 ifneq ($(USEMSVC),1)
 CPP = $(CC) -E
 AR := $(CROSS_COMPILE)ar
@@ -684,13 +683,10 @@ endif
 # file extensions
 ifeq ($(OS), WINNT)
   SHLIB_EXT = dll
-  SHELL_EXT = bat
 else ifeq ($(OS), Darwin)
   SHLIB_EXT = dylib
-  SHELL_EXT = sh
 else
   SHLIB_EXT = so
-  SHELL_EXT = sh
 endif
 
 # --whole-archive
