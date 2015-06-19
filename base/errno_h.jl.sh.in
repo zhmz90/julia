@@ -1,0 +1,7 @@
+#!/bin/sh
+
+echo '#include "errno.h"' | \
+    @CPP_COMMAND_STR@ -dM - | \
+    @PERL_COMMAND_STR@ -nle \
+     'print "const $1 = Int32($2)" if /^#define\s+(E\w+)\s+(\d+)\s*$/' | \
+    sort > "$1"

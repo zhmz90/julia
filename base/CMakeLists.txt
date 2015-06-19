@@ -243,6 +243,7 @@ set(sys_img_SRCS
   utf8.jl
   utf8proc.jl
   utferror.jl
+  utfcheck.jl
   utftypes.jl
   util.jl
   version.jl)
@@ -306,3 +307,18 @@ set_target_properties(julia-inference-so PROPERTIES
   LIBRARY_OUTPUT_DIRECTORY "${build_private_libdir}")
 
 add_dependencies(julia-inference-so julia-inference)
+
+# TODO find perl
+set(PERL_COMMAND perl)
+
+string(REPLACE ";" " " PERL_COMMAND_STR "${PERL_COMMAND}")
+string(REPLACE ";" " " CPP_COMMAND_STR "${CPP_COMMAND}")
+configure_file(errno_h.jl.sh.in errno_h.jl.sh @ONLY)
+
+add_custom_command(OUTPUT errno_h.jl
+  COMMAND sh errno_h.jl.sh errno_h.jl
+  WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+  DEPENDS errno_h.jl.sh.in)
+
+add_custom_target(julia-errno_h.jl
+  DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/errno_h.jl")
