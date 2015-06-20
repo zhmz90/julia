@@ -334,6 +334,10 @@ end
 @test_approx_eq norm(Float64[1e-300, 1], -3)*1e300 1
 @test_approx_eq norm(Float64[1e300, 1], 3)*1e-300 1
 
+# Issue #11788
+@test_approx_eq norm([2.4e-322, 4.4e-323]) 2.47e-322
+@test_approx_eq norm([2.4e-322, 4.4e-323], 3) 2.4e-322
+
 # Uniform scaling
 @test I[1,1] == 1 # getindex
 @test I[1,2] == 0 # getindex
