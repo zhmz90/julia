@@ -84,6 +84,7 @@ jl_set_make_flag(CMAKE "${CMAKE_COMMAND}")
 set(JL_SYSTEM_IMAGE_PATH "${build_private_libdir_rel}/sys.ji")
 
 configure_file(src/julia-config.h.in include/julia/julia-config.h @ONLY)
+configure_file(src/julia-config-p.h.in include/julia/julia-config-p.h @ONLY)
 
 # This is the trick in cmake to have proper dependency on a file
 # For another command that depend on the output of this which needs to be

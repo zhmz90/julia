@@ -5,6 +5,7 @@
   system initialization and global state
 */
 #include "platform.h"
+#include <julia/julia-config-p.h>
 
 #include <stdlib.h>
 #include <string.h>

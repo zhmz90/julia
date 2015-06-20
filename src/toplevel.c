@@ -18,11 +18,16 @@
 #endif
 #include "julia.h"
 #include "julia_internal.h"
+#include <julia/julia-config-p.h>
 #include "uv.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
+
+extern int asprintf(char **str, const char *fmt, ...);
+
+char jl_build_base_path[] = JL_BUILD_BASE_PATH;
 
 // current line number in a file
 DLLEXPORT int jl_lineno = 0;
@@ -594,6 +599,14 @@ jl_value_t *jl_parse_eval_all(const char *fname, size_t len)
     return result;
 }
 
+static int
+jl_is_regfile(const char *fname)
+{
+    uv_stat_t stbuf;
+    return (jl_stat(fname, (char*)&stbuf) == 0 &&
+            (stbuf.st_mode & S_IFMT) == S_IFREG);
+}
+
 jl_value_t *jl_load(const char *fname)
 {
     if (jl_current_module->istopmod) {
@@ -602,16 +615,24 @@ jl_value_t *jl_load(const char *fname)
         uv_run(uv_default_loop(), (uv_run_mode)1);
 #endif
     }
-    char *fpath = (char*)fname;
-    uv_stat_t stbuf;
-    if (jl_stat(fpath, (char*)&stbuf) != 0 || (stbuf.st_mode & S_IFMT) != S_IFREG) {
-        jl_errorf("could not open file %s", fpath);
+    char *fpath = NULL;
+    if (!jl_is_regfile(fname)) {
+        if (jl_build_base_path[0]) {
+            asprintf(&fpath, "%s/%s", jl_build_base_path, fname);
+            if (!jl_is_regfile(fpath)) {
+                free(fpath);
+                jl_errorf("could not open file %s", fname);
+            }
+            fname = fpath;
+        } else {
+            jl_errorf("could not open file %s", fname);
+        }
     }
-    if (jl_start_parsing_file(fpath) != 0) {
-        jl_errorf("could not open file %s", fpath);
+    if (jl_start_parsing_file(fname) != 0) {
+        jl_errorf("could not open file %s", fname);
     }
-    jl_value_t *result = jl_parse_eval_all(fpath, strlen(fpath));
-    if (fpath != fname) free(fpath);
+    jl_value_t *result = jl_parse_eval_all(fname, strlen(fname));
+    free(fpath);
     return result;
 }
 

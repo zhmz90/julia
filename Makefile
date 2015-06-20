@@ -41,7 +41,7 @@ BASE_SRCS := $(wildcard base/*.jl base/*/*.jl base/*/*/*.jl)
 
 COMMA:=,
 $(build_private_libdir)/sys.o: VERSION $(BASE_SRCS) $(build_docdir)/helpdb.jl
-	@$(call PRINT_JULIA, cd $(CMAKE_BINARY_DIR)/base && \
+	@$(call PRINT_JULIA, cd base && \
 	$(call spawn,$(JULIA_EXECUTABLE)) -C $(JULIA_CPU_TARGET) --build $(call cygpath_w,$(build_private_libdir)/sys) -f \
 		-J $(call cygpath_w,$(build_private_libdir)/inference.ji) sysimg.jl \
 		|| { echo '*** This error is usually fixed by running `make clean`. If the error persists$(COMMA) try `make cleanall`. ***' && false; } )

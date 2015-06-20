@@ -1,23 +1,5 @@
 #
 
-add_custom_target(julia-copy-all-base)
-
-function(copy_jl src)
-  if("${CMAKE_CURRENT_BINARY_DIR}" STREQUAL "${CMAKE_CURRENT_SOURCE_DIR}")
-    return()
-  endif()
-  add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${src}"
-    COMMAND "${CMAKE_COMMAND}" -E copy
-    "${CMAKE_CURRENT_SOURCE_DIR}/${src}"
-    "${CMAKE_CURRENT_BINARY_DIR}/${src}"
-    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${src}")
-  # TODO maybe handle other invalid target names too
-  string(REPLACE "/" "-" target "${src}")
-  add_custom_target(julia-copy-base-${target}
-    DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/${src}")
-  add_dependencies(julia-copy-all-base julia-copy-base-${target})
-endfunction()
-
 set(core_img_SRCS
   coreimg.jl
   essentials.jl
@@ -248,10 +230,6 @@ set(sys_img_SRCS
   util.jl
   version.jl)
 
-foreach(jl_file ${core_img_SRCS} ${sys_img_SRCS})
-  copy_jl(${jl_file})
-endforeach()
-
 # TODO JULIA_CPU_TARGET
 set(JULIA_CPU_TARGET native)
 
@@ -259,12 +237,12 @@ add_custom_command(OUTPUT "${build_private_libdir}/inference0.o"
   "${build_private_libdir}/inference0.ji"
   COMMAND "${build_bindir}/julia" -C ${JULIA_CPU_TARGET}
   --build "${build_private_libdir}/inference0" -f coreimg.jl
-  WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
   DEPENDS ${core_img_SRCS})
 
 add_custom_target(julia-inference0
   DEPENDS "${build_private_libdir}/inference0.o"
-  julia-ui julia-copy-all-base)
+  julia-ui)
 
 if(NOT EXISTS "${CMAKE_CURRENT_BINARY_DIR}/dummy.c")
   execute_process(COMMAND "${CMAKE_COMMAND}" -E
@@ -289,12 +267,13 @@ add_custom_command(OUTPUT "${build_private_libdir}/inference.o"
   COMMAND "${build_bindir}/julia" -C ${JULIA_CPU_TARGET}
   --build "${build_private_libdir}/inference" -f
   -J "${build_private_libdir}/inference0.ji" coreimg.jl
-  WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
-  DEPENDS ${core_img_SRCS} julia-inference0-so)
+  WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+  DEPENDS ${core_img_SRCS} "${build_private_libdir}/inference0.o")
 
 add_custom_target(julia-inference
   DEPENDS "${build_private_libdir}/inference.o"
-  julia-ui julia-copy-all-base)
+  julia-ui
+  julia-inference0-so)
 
 add_library(julia-inference-so MODULE "${CMAKE_CURRENT_BINARY_DIR}/dummy.c")
 
