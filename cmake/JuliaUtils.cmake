@@ -60,7 +60,7 @@ endfunction()
 
 function(jl_custom_target target outputs output_deps target_deps autodep_file)
   jl_rewrite_dep_list(output_deps "${output_deps}")
-  jl_rewrite_dep_list(outputs "${outputs}")
+  jl_rewrite_output_list(outputs "${outputs}")
   add_custom_target("${target}" ALL
     COMMAND "${CMAKE_COMMAND}"
     "-DOUTPUTS=${outputs}" "-DOUTPUT_DEPS=${output_deps}"
