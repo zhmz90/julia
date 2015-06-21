@@ -27,12 +27,12 @@ set_target_properties(julia-inference0-so PROPERTIES
 
 add_dependencies(julia-inference0-so julia-inference0)
 
-# TODO use inference.so if it exists
+# TODO? use inference.so if it exists
 jl_custom_target(julia-inference
   "${build_private_libdir}/inference.o;${build_private_libdir}/inference.ji"
   "coreimg.jl;${CMAKE_CURRENT_BINARY_DIR}/inference0.o"
   "julia-ui;julia-inference0-so"
-  "${CMAKE_CURRENT_BINARY_DIR}/inference0.fnames"
+  inference0.fnames
   COMMAND "${build_bindir}/julia" -C ${JULIA_CPU_TARGET}
   --build "${build_private_libdir}/inference" -f
   -J "${CMAKE_CURRENT_BINARY_DIR}/inference0.ji" coreimg.jl
