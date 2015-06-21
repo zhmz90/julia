@@ -20,6 +20,7 @@
 #include "julia_internal.h"
 #include <julia/julia-config-p.h>
 #include "uv.h"
+#include <stdio.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -27,7 +28,7 @@ extern "C" {
 
 extern int asprintf(char **str, const char *fmt, ...);
 
-char jl_build_base_path[] = JL_BUILD_BASE_PATH;
+static volatile char jl_build_base_path[] = JL_BUILD_BASE_PATH;
 
 // current line number in a file
 DLLEXPORT int jl_lineno = 0;
@@ -607,6 +608,20 @@ jl_is_regfile(const char *fname)
             (stbuf.st_mode & S_IFMT) == S_IFREG);
 }
 
+static void
+jl_log_deps(const char *fpath)
+{
+    static FILE *log_file = NULL;
+    if (!log_file) {
+        char *log_path = NULL;
+        asprintf(&log_path, "%s.fnames", jl_options.build_path);
+        log_file = fopen(log_path, "w");
+        free(log_path);
+    }
+    fprintf(log_file, "%s\n", fpath);
+    fflush(log_file);
+}
+
 jl_value_t *jl_load(const char *fname)
 {
     if (jl_current_module->istopmod) {
@@ -616,8 +631,10 @@ jl_value_t *jl_load(const char *fname)
 #endif
     }
     char *fpath = NULL;
+    int build_base_mode = (jl_build_base_path[0] &&
+                           jl_options.build_path != NULL);
     if (!jl_is_regfile(fname)) {
-        if (jl_build_base_path[0]) {
+        if (build_base_mode) {
             asprintf(&fpath, "%s/%s", jl_build_base_path, fname);
             if (!jl_is_regfile(fpath)) {
                 free(fpath);
@@ -627,11 +644,17 @@ jl_value_t *jl_load(const char *fname)
         } else {
             jl_errorf("could not open file %s", fname);
         }
+    } else if (build_base_mode) {
+        fpath = realpath(fname, NULL);
+        fname = fpath;
     }
     if (jl_start_parsing_file(fname) != 0) {
         jl_errorf("could not open file %s", fname);
     }
     jl_value_t *result = jl_parse_eval_all(fname, strlen(fname));
+    if (build_base_mode) {
+        jl_log_deps(fname);
+    }
     free(fpath);
     return result;
 }
