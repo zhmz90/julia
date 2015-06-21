@@ -22,8 +22,8 @@ include(JuliaDirs)
 include(JuliaCCompiler)
 
 # TODO only enable if necessary
-enable_language(Fortran)
-include(JuliaFortranCompiler)
+# enable_language(Fortran)
+# include(JuliaFortranCompiler)
 
 # OPENBLAS build options
 jl_str_option(OPENBLAS_TARGET_ARCH "OpenBLAS Arch" "")
