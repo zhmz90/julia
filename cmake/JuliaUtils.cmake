@@ -86,24 +86,3 @@ function(jl_custom_output outputs output_deps target_deps autodep_file)
   jl_custom_target("${target}" "${outputs}" "${output_deps}"
     "${target_deps}" "${autodep_file}" ${ARGN})
 endfunction()
-
-# add_custom_command(OUTPUT "${build_private_libdir}/inference0.o"
-#   "${build_private_libdir}/inference0.ji"
-#   COMMAND "${build_bindir}/julia" -C ${JULIA_CPU_TARGET}
-#   --build "${build_private_libdir}/inference0" -f coreimg.jl
-#   WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-#   DEPENDS ${core_img_SRCS})
-
-# add_custom_target(julia-inference0
-#   DEPENDS "${build_private_libdir}/inference0.o"
-#   julia-ui)
-
-# function(jl_sysimg_target outputs target output_deps target_deps autodep_file)
-#   set(gen_script "${CMAKE_CURRENT_BINARY_DIR}/.jl_gen_sysimg-${target}.sh")
-#   set(stamp_file "${CMAKE_CURRENT_BINARY_DIR}/.jl_gen_sysimg-${target}.stamp")
-#   configure_file(jl_gen_sysimg.sh.in "${gen_script}" @ONLY)
-#   # Force a recompilation if direct
-#   add_custom_command(OUTPUT "${stamp_file}"
-#     COMMAND "${CMAKE_COMMAND}" -E touch "${stamp_file}"
-#     DEPENDS ${output_deps})
-# endfunction()
