@@ -88,18 +88,13 @@ include("iterator.jl")
 include("osutils.jl")
 
 # strings & printing
-include("utferror.jl")
-include("utftypes.jl")
-include("utfcheck.jl")
 include("char.jl")
 include("ascii.jl")
-include("utf8.jl")
-include("utf16.jl")
-include("utf32.jl")
 include("iobuffer.jl")
 include("string.jl")
-include("utf8proc.jl")
-importall .UTF8proc
+include("unicode.jl")
+include("parse.jl")
+include("shell.jl")
 include("regex.jl")
 include("base64.jl")
 importall .Base64
@@ -110,7 +105,7 @@ include("iostream.jl")
 
 # system & environment
 include("libc.jl")
-using .Libc: getpid, gethostname, time, msync
+using .Libc: getpid, gethostname, time
 include("libdl.jl")
 using .Libdl: DL_LOAD_PATH
 include("env.jl")
@@ -221,6 +216,7 @@ include("poll.jl")
 
 # memory-mapped and shared arrays
 include("mmap.jl")
+import .Mmap
 include("sharedarray.jl")
 
 # utilities - timing, help, edit
@@ -279,8 +275,8 @@ end
 include("sysinfo.jl")
 import .Sys.CPU_CORES
 
-# mathematical constants
-include("constants.jl")
+# irrational mathematical constants
+include("irrationals.jl")
 
 # Numerical integration
 include("quadgk.jl")

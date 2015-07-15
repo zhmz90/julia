@@ -576,7 +576,7 @@ end
         end
         return :($meta; setindex!(V.parent, v, V.first_index + V.stride1*(I[1]-1)))
     end
-    Isyms = [:(I[$d]) for d = 1:ni]
+    Isyms = Any[:(I[$d]) for d = 1:ni]
     exhead, idxs = index_generate(ndims(P), IV, :V, Isyms)
     quote
         $exhead
@@ -592,7 +592,7 @@ end
         end
         return :($meta; unsafe_setindex!(V.parent, v, V.first_index + V.stride1*(I[1]-1)))
     end
-    Isyms = [:(I[$d]) for d = 1:ni]
+    Isyms = Any[:(I[$d]) for d = 1:ni]
     exhead, idxs = index_generate(ndims(P), IV, :V, Isyms)
     quote
         $exhead
@@ -603,9 +603,9 @@ end
 # Indexing with non-scalars. For now, this returns a copy, but changing that
 # is just a matter of deleting the explicit call to copy.
 getindex{T,N,P,IV}(V::SubArray{T,N,P,IV}, I::ViewIndex...) = copy(sub(V, I...))
-getindex{T,N,P,IV}(V::SubArray{T,N,P,IV}, I::Union{Real, AbstractVector, Colon}...) = getindex(V, to_index(I)...)
+getindex{T,N,P,IV}(V::SubArray{T,N,P,IV}, I::Union{Real, AbstractVector, Colon}...) = getindex(V, to_indexes(I...)...)
 unsafe_getindex{T,N,P,IV}(V::SubArray{T,N,P,IV}, I::ViewIndex...) = copy(sub_unsafe(V, I))
-unsafe_getindex{T,N,P,IV}(V::SubArray{T,N,P,IV}, I::Union{Real, AbstractVector, Colon}...) = unsafe_getindex(V, to_index(I)...)
+unsafe_getindex{T,N,P,IV}(V::SubArray{T,N,P,IV}, I::Union{Real, AbstractVector, Colon}...) = unsafe_getindex(V, to_indexes(I...)...)
 
 # Nonscalar setindex! falls back to the AbstractArray versions
 

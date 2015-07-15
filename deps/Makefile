@@ -30,7 +30,7 @@ CONFIGURE_COMMON += --host=$(XC_HOST)
 endif
 ifeq ($(OS),WINNT)
 ifneq ($(USEMSVC), 1)
-CONFIGURE_COMMON += LDFLAGS=-Wl,--stack,8388608
+CONFIGURE_COMMON += LDFLAGS="$(LDFLAGS) -Wl,--stack,8388608"
 endif
 endif
 CONFIGURE_COMMON += F77="$(FC)" CC="$(CC) $(DEPS_CFLAGS)" CXX="$(CXX) $(DEPS_CXXFLAGS)"
@@ -49,6 +49,17 @@ endif
 CMAKE_COMMON += -DCMAKE_CXX_COMPILER="$(CXX_BASE)"
 ifneq ($(strip $(CMAKE_CXX_ARG)),)
 CMAKE_COMMON += -DCMAKE_CXX_COMPILER_ARG1="$(CMAKE_CXX_ARG)"
+endif
+
+# For now this is LLVM specific, but I expect it won't be in the future
+ifneq ($(LLVM_USE_CMAKE),)
+ifeq ($(CMAKE_GENERATOR),Ninja)
+CMAKE_GENERATOR_COMMAND = -G Ninja
+else ifeq ($(CMAKE_GENERATOR),make)
+CMAKE_GENERATOR_COMMAND = -G "Unix Makefiles"
+else
+$(error Unknown CMake generator '$(CMAKE_GENERATOR)'. Options are 'Ninja' and 'make')
+endif
 endif
 
 # If the top-level Makefile is called with environment variables,
@@ -143,14 +154,6 @@ endif
 
 ifeq ($(USE_SYSTEM_MPFR), 0)
 STAGE2_DEPS += mpfr
-ifeq ($(USE_SYSTEM_GMP), 0)
-MPFR_OPTS = --with-gmp-include=$(abspath $(build_includedir)) --with-gmp-lib=$(abspath $(build_shlibdir))
-endif
-endif
-ifeq ($(BUILD_OS),WINNT)
-ifeq ($(OS),WINNT)
-MPFR_OPTS += --disable-thread-safe CFLAGS="-DNPRINTF_L -DNPRINTF_T -DNPRINTF_J"
-endif
 endif
 
 ifeq ($(USE_SYSTEM_ARPACK), 0)
@@ -212,14 +215,17 @@ $(build_prefix): | $(DIRS)
 #   	touch -c $@
 # this rule ensures that make install is more nearly atomic
 # so it's harder to get half-installed (or half-reinstalled) dependencies
-MAKE_DESTDIR = DESTDIR="$(build_staging)/$1"
-define make-install
+MAKE_DESTDIR = "$(build_staging)/$1"
+define staged-install
 	rm -rf $(build_staging)/$1
-	+$(MAKE) -C $1 install $(MAKE_COMMON) $2 $(call MAKE_DESTDIR,$1)
+	$2
 	mkdir -p $(build_prefix)
 	cp -af $(build_staging)/$1$(build_prefix)/* $(build_prefix)
 endef
 
+define make-install
+	$(call staged-install,$1,+$(MAKE) -C $1 install $(MAKE_COMMON) $2 DESTDIR=$(call MAKE_DESTDIR,$1))
+endef
 
 ## A rule for making a git-external dependency ##
 # call syntax:
@@ -307,7 +313,11 @@ endif
 endif
 
 LLVM_LIB_FILE = libLLVMCodeGen.a
+ifeq ($(LLVM_USE_CMAKE),1)
+LLVM_OBJ_SOURCE = llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE)/lib/$(LLVM_LIB_FILE)
+else
 LLVM_OBJ_SOURCE = llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE)/$(LLVM_FLAVOR)/lib/$(LLVM_LIB_FILE)
+endif
 LLVM_OBJ_TARGET = $(build_libdir)/$(LLVM_LIB_FILE)
 
 ifneq ($(LLVM_VER),svn)
@@ -347,7 +357,9 @@ endif # LLVM_VER != svn
 LLVM_CXXFLAGS = $(CXXFLAGS)
 LLVM_CPPFLAGS = $(CPPFLAGS)
 LLVM_LDFLAGS = $(LDFLAGS)
-LLVM_TARGET_FLAGS= --enable-targets=host
+LLVM_TARGETS = host
+LLVM_TARGET_FLAGS = --enable-targets=$(LLVM_TARGETS)
+LLVM_CMAKE += -DLLVM_TARGETS_TO_BUILD:STRING="$(LLVM_TARGETS)" -DLLVM_BUILD_LLVM_DYLIB:BOOL=ON -DLLVM_DYLIB_EXPORT_ALL:BOOL=ON
 LLVM_FLAGS += --disable-profiling --enable-shared --enable-static $(LLVM_TARGET_FLAGS) --disable-bindings --disable-docs
 # LLVM has weird install prefixes (see llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE)/Makefile.config for the full list)
 # We map them here to the "normal" ones, which means just prefixing "PROJ_" to the variable name.
@@ -393,6 +405,7 @@ LLVM_CXXFLAGS += -std=c++0x
 endif # USECLANG
 ifeq ($(LLDB_DISABLE_PYTHON),1)
 LLVM_CXXFLAGS += -DLLDB_DISABLE_PYTHON
+LLVM_CMAKE += -DLLDB_DISABLE_PYTHON=ON
 endif # LLDB_DISABLE_PYTHON
 endif # BUILD_LLDB
 
@@ -403,12 +416,12 @@ endif # ARCH == ppc64
 
 ifeq ($(LLVM_SANITIZE),1)
 ifeq ($(SANITIZE_MEMORY),1)
-LLVM_CC = CFLAGS="-fsanitize=memory -fsanitize-memory-track-origins"
+LLVM_CC = CFLAGS="$(CFLAGS) -fsanitize=memory -fsanitize-memory-track-origins"
 LLVM_LDFLAGS += -fsanitize=memory -fsanitize-memory-track-origins
 LLVM_CXXFLAGS += -fsanitize=memory -fsanitize-memory-track-origins
 LLVM_CMAKE += -DLLVM_USE_SANITIZER="MemoryWithOrigins"
 else
-LLVM_CC = CFLAGS="-fsanitize=address"
+LLVM_CC = CFLAGS="$(CFLAGS) -fsanitize=address"
 LLVM_LDFLAGS += -fsanitize=address
 LLVM_CXXFLAGS += -fsanitize=address
 LLVM_CMAKE += -DLLVM_USE_SANITIZER="Address"
@@ -554,35 +567,35 @@ else
 ifneq ($(LLVM_GIT_VER),)
 	(cd llvm-$(LLVM_VER) && \
 		git checkout $(LLVM_GIT_VER))
-endif
-endif
+endif # LLVM_GIT_VER
+endif # LLVM_VER
 ifneq ($(LLVM_VER),svn)
 ifneq ($(LLVM_CLANG_TAR),)
 	mkdir -p llvm-$(LLVM_VER)/tools/clang && \
 	$(TAR) -C llvm-$(LLVM_VER)/tools/clang --strip-components 1 -xf $(LLVM_CLANG_TAR)
-endif
+endif # LLVM_CLANG_TAR
 ifneq ($(LLVM_COMPILER_RT_TAR),)
 	mkdir -p llvm-$(LLVM_VER)/projects/compiler-rt && \
 	$(TAR) -C llvm-$(LLVM_VER)/projects/compiler-rt --strip-components 1 -xf $(LLVM_COMPILER_RT_TAR)
-endif
+endif # LLVM_COMPILER_RT_TAR
 ifneq ($(LLVM_LLDB_TAR),)
 	mkdir -p llvm-$(LLVM_VER)/tools/lldb && \
 	$(TAR) -C llvm-$(LLVM_VER)/tools/lldb --strip-components 1 -xf $(LLVM_LLDB_TAR)
-endif
+endif # LLVM_LLDB_TAR
 else
 ifeq ($(BUILD_LLVM_CLANG),1)
 	([ ! -d llvm-$(LLVM_VER)/tools/clang ] && \
 		git clone $(LLVM_GIT_URL_CLANG) llvm-$(LLVM_VER)/tools/clang  ) || \
 		(cd llvm-$(LLVM_VER)/tools/clang  && \
 		git pull --ff-only)
-endif
+endif # BUILD_LLVM_CLANG
 ifeq ($(BUILD_LLDB),1)
 	([ ! -d llvm-$(LLVM_VER)/tools/lldb ] && \
 		git clone $(LLVM_GIT_URL_LLDB) llvm-$(LLVM_VER)/tools/lldb  ) || \
 		(cd llvm-$(LLVM_VER)/tools/lldb  && \
 		git pull --ff-only)
-endif
-endif
+endif # BUILD_LLDB
+endif # LLVM_VER
 ifeq ($(LLVM_VER),svn)
 ifeq ($(BUILD_LLVM_CLANG),1)
 	([ ! -d llvm-$(LLVM_VER)/tools/clang ] && \
@@ -596,9 +609,9 @@ ifeq ($(BUILD_LLVM_CLANG),1)
 ifneq ($(LLVM_CLANG_VER),)
 	(cd llvm-$(LLVM_VER) && \
 		git checkout $(LLVM_GIT_VER))
-endif
-endif
-endif
+endif # LLVM_CLANG_VER
+endif # BUILD_LLVM_CLANG
+endif # LLVM_VER
 
 # Apply version-specific LLVM patches
 ifeq ($(LLVM_VER),3.3)
@@ -610,44 +623,73 @@ ifeq ($(LLVM_VER),3.3)
 ifeq ($(OS),WINNT)
 ifeq ($(ARCH),x86_64)
 	patch -p0 < win64-int128.llvm-3.3.patch
-endif
-endif
+endif # x86_64
+endif # WINNT
 
 else ifeq ($(LLVM_VER),3.6.0)
 	cd llvm-3.6.0 && patch -p1 < ../zerosign-llvm-3.6.0.patch
 ifeq ($(OS),WINNT)
 ifeq ($(ARCH),x86_64)
 	cd llvm-3.6.0 && patch -p1 < ../win64-allocas-llvm-3.6.0.patch
-endif
-endif
+endif # x86_64
+endif # WINNT
 
-endif
+endif # LLVM_VER
 	touch -c $@
 # end target llvm-$(LLVM_VER)/configure
 
-llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE)/config.status: llvm-$(LLVM_VER)/configure | $(llvm_python_workaround) $(LIBCXX_DEPENDENCY)
+LLVM_BUILDDIR = llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE)
+ifneq ($(LLVM_USE_CMAKE),)
+
+$(LLVM_BUILDDIR)/CMakeCache.txt: llvm-$(LLVM_VER)/configure | $(llvm_python_workaround) $(LIBCXX_DEPENDENCY)
+	cd llvm-$(LLVM_VER) && \
+	mkdir -p build_$(LLVM_BUILDTYPE) && cd build_$(LLVM_BUILDTYPE) && \
+	export PATH=$(abspath llvm-$(LLVM_VER)/python2_path):$$PATH && \
+	$(CMAKE) .. $(CMAKE_GENERATOR_COMMAND) $(CMAKE_COMMON) $(LLVM_CMAKE)
+	touch -c $@
+
+$(LLVM_OBJ_SOURCE): $(LLVM_BUILDDIR)/CMakeCache.txt | $(llvm_python_workaround)
+	cd llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE) && \
+	export PATH=$(abspath llvm-$(LLVM_VER)/python2_path):$$PATH && \
+	$(CMAKE) --build .
+	touch -c $@
+
+else
+
+$(LLVM_BUILDDIR)/config.status: llvm-$(LLVM_VER)/configure | $(llvm_python_workaround) $(LIBCXX_DEPENDENCY)
 	cd llvm-$(LLVM_VER) && \
 	mkdir -p build_$(LLVM_BUILDTYPE) && cd build_$(LLVM_BUILDTYPE) && \
 	export PATH=$(abspath llvm-$(LLVM_VER)/python2_path):$$PATH && \
 	../configure $(CONFIGURE_COMMON) $(LLVM_CC) $(LLVM_FLAGS)
 	touch -c $@
 
-$(LLVM_OBJ_SOURCE): llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE)/config.status | $(llvm_python_workaround)
+$(LLVM_OBJ_SOURCE): $(LLVM_BUILDDIR)/config.status | $(llvm_python_workaround)
 	cd llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE) && \
 	export PATH=$(abspath llvm-$(LLVM_VER)/python2_path):$$PATH && \
 	$(MAKE) $(LLVM_MFLAGS) $(MAKE_COMMON)
 	touch -c $@
 
-llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE)/checked: $(LLVM_OBJ_SOURCE) | $(llvm_python_workaround)
+endif # LLVM_USE_CMAKE
+
+ifeq ($(LLVM_USE_CMAKE),1)
+CHECK_COMMAND = $(CMAKE) --build . check
+else
+CHECK_COMMAND = $(MAKE) $(LLVM_MFLAGS) check
+endif
+$(LLVM_BUILDDIR)/checked: $(LLVM_OBJ_SOURCE) | $(llvm_python_workaround)
 ifeq ($(OS),$(BUILD_OS))
 	cd llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE) && \
 	export PATH=$(abspath llvm-$(LLVM_VER)/python2_path):$$PATH && \
-	$(MAKE) $(LLVM_MFLAGS) check
+	$(CHECK_COMMAND)
 endif
 	echo 1 > $@
 
 $(LLVM_OBJ_TARGET): $(LLVM_OBJ_SOURCE) | $(llvm_python_workaround)
-	$(call make-install,llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE),$(LLVM_MFLAGS) PATH="$(abspath llvm-$(LLVM_VER)/python2_path):$$PATH")
+ifeq ($(LLVM_USE_CMAKE),1)
+	$(call staged-install,$(LLVM_BUILDDIR),cd $(LLVM_BUILDDIR) && $(CMAKE) -DCMAKE_INSTALL_PREFIX="$(call MAKE_DESTDIR,$(LLVM_BUILDDIR))$(build_prefix)" -P cmake_install.cmake)
+else
+	$(call make-install,$(LLVM_BUILDDIR),$(LLVM_MFLAGS) PATH="$(abspath llvm-$(LLVM_VER)/python2_path):$$PATH")
+endif # LLVM_USE_CMAKE
 	touch -c $@
 
 reinstall-llvm:
@@ -695,7 +737,7 @@ endif
 
 UV_MFLAGS += LDFLAGS="$(LDFLAGS) $(CLDFLAGS) -v"
 ifneq ($(UV_CFLAGS),)
-UV_MFLAGS += CFLAGS="$(UV_CFLAGS)"
+UV_MFLAGS += CFLAGS="$(CFLAGS) $(UV_CFLAGS)"
 endif
 ifneq ($(VERBOSE), 0)
 UV_MFLAGS += V=1
@@ -743,6 +785,9 @@ PCRE_OBJ_TARGET = $(build_shlibdir)/libpcre2-8.$(SHLIB_EXT)
 
 # Force optimization for PCRE flags (Issue #11668)
 PCRE_CFLAGS = -O3
+ifneq ($(OS),WINNT)
+PCRE_LDFLAGS = "-Wl,-rpath,'$(build_libdir)'"
+endif
 
 pcre2-$(PCRE_VER).tar.bz2:
 	$(JLDOWNLOAD) $@ https://ftp.csx.cam.ac.uk/pub/software/programming/pcre/pcre2-$(PCRE_VER).tar.bz2
@@ -752,10 +797,10 @@ pcre2-$(PCRE_VER)/configure: pcre2-$(PCRE_VER).tar.bz2
 	touch -c $@
 pcre2-$(PCRE_VER)/config.status: pcre2-$(PCRE_VER)/configure
 	cd pcre2-$(PCRE_VER) && \
-	./configure $(CONFIGURE_COMMON) --enable-jit --includedir=$(build_includedir)
+	./configure $(CONFIGURE_COMMON) --enable-jit --includedir=$(build_includedir) CFLAGS="$(CFLAGS) $(PCRE_CFLAGS)" LDFLAGS="$(LDFLAGS) $(PCRE_LDFLAGS)"
 	touch -c $@
 $(PCRE_SRC_TARGET): pcre2-$(PCRE_VER)/config.status
-	$(MAKE) -C pcre2-$(PCRE_VER) $(LIBTOOL_CCLD) CFLAGS="$(PCRE_CFLAGS)"
+	$(MAKE) -C pcre2-$(PCRE_VER) $(LIBTOOL_CCLD)
 	touch -c $@
 pcre2-$(PCRE_VER)/checked: $(PCRE_SRC_TARGET)
 ifeq ($(OS),$(BUILD_OS))
@@ -826,7 +871,7 @@ endif
 
 OPENSPECFUN_OBJ_TARGET = $(build_shlibdir)/libopenspecfun.$(SHLIB_EXT)
 OPENSPECFUN_OBJ_SOURCE = $(OPENSPECFUN_SRC_DIR)/libopenspecfun.$(SHLIB_EXT)
-OPENSPECFUN_FLAGS = ARCH="$(ARCH)" CC="$(CC)" FC="$(FC)" AR="$(AR)" OS="$(OS)" USECLANG=$(USECLANG) USEGCC=$(USEGCC) FFLAGS="$(JFFLAGS)" CFLAGS="$(OPENSPECFUN_CFLAGS)"
+OPENSPECFUN_FLAGS = ARCH="$(ARCH)" CC="$(CC)" FC="$(FC)" AR="$(AR)" OS="$(OS)" USECLANG=$(USECLANG) USEGCC=$(USEGCC) FFLAGS="$(JFFLAGS)" CFLAGS="$(CFLAGS) $(OPENSPECFUN_CFLAGS)"
 
 ifeq ($(USE_SYSTEM_LIBM),0)
 	OPENSPECFUN_FLAGS += USE_OPENLIBM=1
@@ -971,7 +1016,7 @@ $(eval $(call git-external,openblas,OPENBLAS,Makefile,libopenblas.$(SHLIB_EXT)))
 
 OPENBLAS_OBJ_SOURCE = $(OPENBLAS_SRC_DIR)/libopenblas.$(SHLIB_EXT)
 OPENBLAS_OBJ_TARGET = $(build_shlibdir)/libopenblas.$(SHLIB_EXT)
-OPENBLAS_BUILD_OPTS = CC="$(CC)" FC="$(FC)" RANLIB="$(RANLIB)" FFLAGS="$(FFLAGS) $(JFFLAGS)" LDFLAGS="$(LDFLAGS)" TARGET=$(OPENBLAS_TARGET_ARCH) BINARY=$(BINARY)
+OPENBLAS_BUILD_OPTS = CC="$(CC)" FC="$(FC)" RANLIB="$(RANLIB)" FFLAGS="$(FFLAGS) $(JFFLAGS)" TARGET=$(OPENBLAS_TARGET_ARCH) BINARY=$(BINARY)
 
 # Thread support
 ifeq ($(OPENBLAS_USE_THREAD), 1)
@@ -1233,7 +1278,7 @@ ARPACK_OBJ_TARGET = $(build_shlibdir)/libarpack.$(SHLIB_EXT)
 
 ARPACK_MFLAGS = F77="$(FC)" MPIF77="$(FC)"
 ARPACK_FFLAGS += $(FFLAGS) $(JFFLAGS)
-ARPACK_FLAGS = --with-blas="$(LIBBLAS)" --with-lapack="$(LIBLAPACK)" --disable-mpi --enable-shared FFLAGS="$(ARPACK_FFLAGS)" CFLAGS="$(ARPACK_CFLAGS)"
+ARPACK_FLAGS = --with-blas="$(LIBBLAS)" --with-lapack="$(LIBLAPACK)" --disable-mpi --enable-shared FFLAGS="$(ARPACK_FFLAGS)" CFLAGS="$(CFLAGS) $(ARPACK_CFLAGS)"
 ifneq ($(OS),WINNT)
 ARPACK_FLAGS += LDFLAGS="$(LDFLAGS) -Wl,-rpath,'$(build_libdir)'"
 endif
@@ -1442,9 +1487,10 @@ UTF8PROC_SRC_TARGET = $(UTF8PROC_SRC_DIR)/libutf8proc.a
 UTF8PROC_OBJ_LIB    = $(build_libdir)/libutf8proc.a
 UTF8PROC_OBJ_HEADER = $(build_includedir)/utf8proc.h
 UTF8PROC_OBJ_TARGET = $(UTF8PROC_OBJ_LIB) $(UTF8PROC_OBJ_HEADER)
+UTF8PROC_CFLAGS     = -O2
 
 $(UTF8PROC_SRC_TARGET): $(UTF8PROC_SRC_DIR)/Makefile
-	$(MAKE) -C $(UTF8PROC_SRC_DIR) CC="$(CC)" CFLAGS="-O2 -std=c99 $(fPIC) -DUTF8PROC_EXPORTS $(DEPS_CFLAGS)" AR="$(AR)" libutf8proc.a
+	$(MAKE) -C $(UTF8PROC_SRC_DIR) CC="$(CC) $(DEPS_CFLAGS)" CFLAGS="$(CFLAGS) $(UTF8PROC_CFLAGS)" PICFLAG="$(fPIC)" AR="$(AR)" libutf8proc.a
 	touch -c $@
 $(UTF8PROC_SRC_DIR)/checked: $(UTF8PROC_SRC_TARGET)
 ifeq ($(OS),$(BUILD_OS))
@@ -1588,8 +1634,8 @@ install-suitesparse-wrapper: $(build_shlibdir)/libsuitesparse_wrapper.$(SHLIB_EX
 
 LIBUNWIND_TARGET_OBJ = $(build_libdir)/libunwind.a
 LIBUNWIND_TARGET_SOURCE = libunwind-$(UNWIND_VER)/src/.libs/libunwind.a
-LIBUNWIND_CFLAGS = $(CFLAGS) -U_FORTIFY_SOURCE $(fPIC)
-LIBUNWIND_CPPFLAGS = $(CPPFLAGS)
+LIBUNWIND_CFLAGS = -U_FORTIFY_SOURCE $(fPIC)
+LIBUNWIND_CPPFLAGS =
 
 libunwind-$(UNWIND_VER).tar.gz:
 	$(JLDOWNLOAD) $@ http://download.savannah.gnu.org/releases/libunwind/$@
@@ -1600,7 +1646,7 @@ libunwind-$(UNWIND_VER)/configure: libunwind-$(UNWIND_VER).tar.gz
 	touch -c $@
 libunwind-$(UNWIND_VER)/config.status: libunwind-$(UNWIND_VER)/configure
 	cd libunwind-$(UNWIND_VER) && \
-	./configure $(CONFIGURE_COMMON) CPPFLAGS="$(LIBUNWIND_CPPFLAGS)" CFLAGS="$(LIBUNWIND_CFLAGS)" --disable-shared --disable-minidebuginfo
+	./configure $(CONFIGURE_COMMON) CPPFLAGS="$(CPPFLAGS) $(LIBUNWIND_CPPFLAGS)" CFLAGS="$(CFLAGS) $(LIBUNWIND_CFLAGS)" --disable-shared --disable-minidebuginfo
 	touch -c $@
 $(LIBUNWIND_TARGET_SOURCE): libunwind-$(UNWIND_VER)/config.status
 	$(MAKE) -C libunwind-$(UNWIND_VER)
@@ -1633,7 +1679,7 @@ install-unwind: $(LIBUNWIND_TARGET_OBJ)
 
 ## OS X Unwind ##
 
-OSXUNWIND_FLAGS = ARCH="$(ARCH)" CC="$(CC)" FC="$(FC)" AR="$(AR)" OS="$(OS)" USECLANG=$(USECLANG) USEGCC=$(USEGCC) CFLAGS="-ggdb3 -O0" CXXFLAGS="$(CXXFLAGS) -ggdb3 -O0" SFLAGS="-ggdb3" LDFLAGS="-Wl,-macosx_version_min,10.7"
+OSXUNWIND_FLAGS = ARCH="$(ARCH)" CC="$(CC)" FC="$(FC)" AR="$(AR)" OS="$(OS)" USECLANG=$(USECLANG) USEGCC=$(USEGCC) CFLAGS="$(CFLAGS) -ggdb3 -O0" CXXFLAGS="$(CXXFLAGS) -ggdb3 -O0" SFLAGS="-ggdb3" LDFLAGS="$(LDFLAGS) -Wl,-macosx_version_min,10.7"
 
 OSXUNWIND_OBJ_TARGET = $(build_shlibdir)/libosxunwind.$(SHLIB_EXT)
 OSXUNWIND_OBJ_SOURCE = libosxunwind-$(OSXUNWIND_VER)/libosxunwind.$(SHLIB_EXT)
@@ -1672,7 +1718,7 @@ install-osxunwind: $(OSXUNWIND_OBJ_TARGET)
 GMP_SRC_TARGET = gmp-$(GMP_VER)/.libs/libgmp.$(SHLIB_EXT)
 GMP_OBJ_TARGET = $(build_shlibdir)/libgmp.$(SHLIB_EXT)
 
-ifneq ($(SANITIZE),)
+ifeq ($(SANITIZE),1)
 GMP_CONFIGURE_OPTS += --disable-assembly
 endif
 
@@ -1720,13 +1766,25 @@ endif
 
 ## MPFR ##
 
+ifeq ($(USE_SYSTEM_MPFR), 0)
+ifeq ($(USE_SYSTEM_GMP), 0)
+MPFR_OPTS = --with-gmp-include=$(abspath $(build_includedir)) --with-gmp-lib=$(abspath $(build_shlibdir))
+endif
+endif
+ifeq ($(BUILD_OS),WINNT)
+ifeq ($(OS),WINNT)
+MPFR_OPTS += --disable-thread-safe CFLAGS="$(CFLAGS) -DNPRINTF_L -DNPRINTF_T -DNPRINTF_J"
+endif
+endif
+
+
 MPFR_SRC_TARGET = mpfr-$(MPFR_VER)/src/.libs/libmpfr.$(SHLIB_EXT)
 MPFR_OBJ_TARGET = $(build_shlibdir)/libmpfr.$(SHLIB_EXT)
 ifeq ($(OS),Darwin)
-MPFR_CHECK_MFLAGS = LDFLAGS="-Wl,-rpath,'$(build_libdir)'"
+MPFR_CHECK_MFLAGS = LDFLAGS="$(LDFLAGS) -Wl,-rpath,'$(build_libdir)'"
 endif
 
-ifneq ($(SANITIZE),)
+ifeq ($(SANITIZE),1)
 # Force generic C build
 MPFR_OPTS += --host=none-unknown-linux
 endif
@@ -1886,16 +1944,18 @@ LIBGIT2_OBJ_TARGET = $(build_shlibdir)/libgit2.$(SHLIB_EXT)
 
 LIBGIT2_OPTS = $(CMAKE_COMMON) -DTHREADSAFE=ON
 ifeq ($(OS),WINNT)
-LIBGIT2_OPTS += -DWIN32=ON -DMINGW=ON -DUSE_SSH=OFF -DCMAKE_SYSTEM_NAME=Windows
+LIBGIT2_OPTS += -DWIN32=ON -DMINGW=ON -DUSE_SSH=OFF -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_BUILD_TYPE=Debug
 ifeq ($(BUILD_OS),WINNT)
 LIBGIT2_OPTS += -G"MSYS Makefiles"
 else
-LIBGIT2_OPTS += -DBUILD_CLAR=OFF -DCMAKE_RC_COMPILER=`which $(CROSS_COMPILE)windres`
+LIBGIT2_OPTS += -DBUILD_CLAR=OFF -DCMAKE_RC_COMPILER=`which $(CROSS_COMPILE)windres` -DDLLTOOL=`which $(CROSS_COMPILE)dlltool`
 LIBGIT2_OPTS += -DCMAKE_FIND_ROOT_PATH=/usr/$(XC_HOST) -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
 endif
 endif
 
 $(LIBGIT2_SRC_DIR)/build/Makefile: $(LIBGIT2_SRC_DIR)/CMakeLists.txt
+	-cd $(LIBGIT2_SRC_DIR) && patch -p1 -f < ../libgit2_oldcmake.patch
+	-cd $(LIBGIT2_SRC_DIR) && patch -p1 -f < ../libgit2_oldssl.patch
 	mkdir -p $(LIBGIT2_SRC_DIR)/build
 	cd $(LIBGIT2_SRC_DIR)/build/ && \
 	$(CMAKE) .. $(LIBGIT2_OPTS)

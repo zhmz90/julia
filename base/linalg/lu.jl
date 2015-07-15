@@ -113,23 +113,18 @@ function ipiv2perm{T}(v::AbstractVector{T}, maxi::Integer)
     return p
 end
 
-function getindex{T,S<:StridedMatrix}(A::LU{T,S}, d::Symbol)
-    m, n = size(A)
+function getindex{T,S<:StridedMatrix}(F::LU{T,S}, d::Symbol)
+    m, n = size(F)
     if d == :L
-        L = tril!(A.factors[1:m, 1:min(m,n)])
+        L = tril!(F.factors[1:m, 1:min(m,n)])
         for i = 1:min(m,n); L[i,i] = one(T); end
         return L
     elseif d == :U
-        return triu!(A.factors[1:min(m,n), 1:n])
+        return triu!(F.factors[1:min(m,n), 1:n])
     elseif d == :p
-        return ipiv2perm(A.ipiv, m)
+        return ipiv2perm(F.ipiv, m)
     elseif d == :P
-        p = A[:p]
-        P = zeros(T, m, m)
-        for i in 1:m
-            P[i,p[i]] = one(T)
-        end
-        return P
+        return eye(T, m)[:,invperm(F[:p])]
     else
         throw(KeyError(d))
     end
@@ -160,7 +155,7 @@ function det{T,S}(A::LU{T,S})
     return prod(diag(A.factors)) * (isodd(sum(A.ipiv .!= 1:n)) ? -one(T) : one(T))
 end
 
-function logdet2{T<:Real,S}(A::LU{T,S})  # return log(abs(det)) and sign(det)
+function logabsdet{T<:Real,S}(A::LU{T,S})  # return log(abs(det)) and sign(det)
     n = chksquare(A)
     dg = diag(A.factors)
     s = (isodd(sum(A.ipiv .!= 1:n)) ? -one(T) : one(T)) * prod(sign(dg))
@@ -168,13 +163,15 @@ function logdet2{T<:Real,S}(A::LU{T,S})  # return log(abs(det)) and sign(det)
 end
 
 function logdet{T<:Real,S}(A::LU{T,S})
-    d,s = logdet2(A)
+    d,s = logabsdet(A)
     if s < 0
-        throw(DomainError("Determinant is negative"))
+        throw(DomainError())
     end
     d
 end
 
+_mod2pi(x::BigFloat) = mod(x, big(2)*π) # we don't want to export this, but we use it below
+_mod2pi(x) = mod2pi(x)
 function logdet{T<:Complex,S}(A::LU{T,S})
     n = chksquare(A)
     s = sum(log(diag(A.factors)))
@@ -182,7 +179,7 @@ function logdet{T<:Complex,S}(A::LU{T,S})
         s = Complex(real(s), imag(s)+π)
     end
     r, a = reim(s)
-    a = π-mod2pi(π-a) #Take principal branch with argument (-pi,pi]
+    a = π - _mod2pi(π - a) #Take principal branch with argument (-pi,pi]
     complex(r,a)
 end
 
@@ -260,6 +257,65 @@ function lufact!{T}(A::Tridiagonal{T}, pivot::Union{Type{Val{false}}, Type{Val{t
 end
 
 factorize(A::Tridiagonal) = lufact(A)
+
+function getindex{T}(F::Base.LinAlg.LU{T,Tridiagonal{T}}, d::Symbol)
+    m, n = size(F)
+    if d == :L
+        L = full(Bidiagonal(ones(T, n), F.factors.dl, false))
+        for i = 2:n
+            tmp = L[F.ipiv[i], 1:i - 1]
+            L[F.ipiv[i], 1:i - 1] = L[i, 1:i - 1]
+            L[i, 1:i - 1] = tmp
+        end
+        return L
+    elseif d == :U
+        U = full(Bidiagonal(F.factors.d, F.factors.du, true))
+        for i = 1:n - 2
+            U[i,i + 2] = F.factors.du2[i]
+        end
+        return U
+    elseif d == :p
+        return ipiv2perm(F.ipiv, m)
+    elseif d == :P
+        return eye(T, m)[:,invperm(F[:p])]
+    end
+    throw(KeyError(d))
+end
+
+function full{T}(F::Base.LinAlg.LU{T,Tridiagonal{T}})
+    n = size(F, 1)
+
+    dl     = copy(F.factors.dl)
+    d      = copy(F.factors.d)
+    du     = copy(F.factors.du)
+    du2    = copy(F.factors.du2)
+
+    for i = n - 1:-1:1
+        li         = dl[i]
+        dl[i]      = li*d[i]
+        d[i + 1]  += li*du[i]
+        if i < n - 1
+            du[i + 1] += li*du2[i]
+        end
+
+        if F.ipiv[i] != i
+            tmp   = dl[i]
+            dl[i] = d[i]
+            d[i]  = tmp
+
+            tmp      = d[i + 1]
+            d[i + 1] = du[i]
+            du[i]    = tmp
+
+            if i < n - 1
+                tmp       = du[i + 1]
+                du[i + 1] = du2[i]
+                du2[i]    = tmp
+            end
+        end
+    end
+    return Tridiagonal(dl, d, du)
+end
 
 # See dgtts2.f
 function A_ldiv_B!{T}(A::LU{T,Tridiagonal{T}}, B::AbstractVecOrMat)

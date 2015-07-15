@@ -143,6 +143,17 @@ debug && println("non-symmetric eigen decomposition")
     if eltya != BigFloat && eltyb != BigFloat # Revisit when implemented in julia
         d,v   = eig(a)
         for i in 1:size(a,2) @test_approx_eq a*v[:,i] d[i]*v[:,i] end
+        f = eigfact(a)
+        @test_approx_eq det(a) det(f)
+        @test_approx_eq inv(a) inv(f)
+
+        num_fact = eigfact(one(eltya))
+        @test num_fact.values[1] == one(eltya)
+        h = a + a'
+        @test_approx_eq minimum(eigvals(h)) eigmin(h)
+        @test_approx_eq maximum(eigvals(h)) eigmax(h)
+        @test_throws DomainError eigmin(a - a')
+        @test_throws DomainError eigmax(a - a')
     end
 
 debug && println("symmetric generalized eigenproblem")

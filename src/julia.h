@@ -307,7 +307,7 @@ typedef struct {
     // not first-class
     jl_sym_t *name;
     jl_value_t *value;
-    jl_value_t *type;
+    jl_value_t *globalref;  // cached GlobalRef for this binding
     struct _jl_module_t *owner;  // for individual imported bindings
     unsigned constp:1;
     unsigned exportp:1;
@@ -546,7 +546,7 @@ DLLEXPORT int jl_gc_enable(int on);
 DLLEXPORT int jl_gc_is_enabled(void);
 DLLEXPORT int64_t jl_gc_total_bytes(void);
 DLLEXPORT uint64_t jl_gc_total_hrtime(void);
-int64_t jl_gc_diff_total_bytes(void);
+DLLEXPORT int64_t jl_gc_diff_total_bytes(void);
 void jl_gc_sync_total_bytes(void);
 
 DLLEXPORT void jl_gc_collect(int);
@@ -963,6 +963,8 @@ DLLEXPORT double jl_unbox_float64(jl_value_t *v);
 DLLEXPORT void *jl_unbox_voidpointer(jl_value_t *v);
 DLLEXPORT ssize_t jl_unbox_gensym(jl_value_t *v);
 
+DLLEXPORT int jl_get_size(jl_value_t *val, size_t *pnt);
+
 #ifdef _P64
 #define jl_box_long(x)   jl_box_int64(x)
 #define jl_box_ulong(x)  jl_box_uint64(x)
@@ -1038,6 +1040,7 @@ DLLEXPORT jl_module_t *jl_new_module(jl_sym_t *name);
 // get binding for reading
 DLLEXPORT jl_binding_t *jl_get_binding(jl_module_t *m, jl_sym_t *var);
 DLLEXPORT jl_binding_t *jl_get_binding_or_error(jl_module_t *m, jl_sym_t *var);
+DLLEXPORT jl_value_t *jl_module_globalref(jl_module_t *m, jl_sym_t *var);
 // get binding for assignment
 DLLEXPORT jl_binding_t *jl_get_binding_wr(jl_module_t *m, jl_sym_t *var);
 DLLEXPORT jl_binding_t *jl_get_binding_for_method_def(jl_module_t *m, jl_sym_t *var);
@@ -1158,12 +1161,17 @@ DLLEXPORT void *jl_eval_string(const char *str);
 
 // external libraries
 enum JL_RTLD_CONSTANT {
-     JL_RTLD_LOCAL=0U, JL_RTLD_GLOBAL=1U, /* LOCAL=0 since it is the default */
-     JL_RTLD_LAZY=2U, JL_RTLD_NOW=4U,
+     JL_RTLD_LOCAL=1U,
+     JL_RTLD_GLOBAL=2U,
+     JL_RTLD_LAZY=4U,
+     JL_RTLD_NOW=8U,
      /* Linux/glibc and MacOS X: */
-     JL_RTLD_NODELETE=8U, JL_RTLD_NOLOAD=16U,
-     /* Linux/glibc: */ JL_RTLD_DEEPBIND=32U,
-     /* MacOS X 10.5+: */ JL_RTLD_FIRST=64U
+     JL_RTLD_NODELETE=16U,
+     JL_RTLD_NOLOAD=32U,
+     /* Linux/glibc: */
+     JL_RTLD_DEEPBIND=64U,
+     /* MacOS X 10.5+: */
+     JL_RTLD_FIRST=128U
 };
 #define JL_RTLD_DEFAULT (JL_RTLD_LAZY | JL_RTLD_DEEPBIND)
 
@@ -1512,6 +1520,7 @@ typedef struct {
     int8_t fast_math;
     int8_t worker;
     int8_t handle_signals;
+    int8_t use_precompiled;
     const char *bindto;
     const char *outputbc;
     const char *outputo;
@@ -1546,12 +1555,19 @@ DLLEXPORT int jl_generating_output();
 #define JL_OPTIONS_STARTUPFILE_ON 1
 #define JL_OPTIONS_STARTUPFILE_OFF 2
 
+#define JL_OPTIONS_DEPWARN_OFF 0
+#define JL_OPTIONS_DEPWARN_ON 1
+#define JL_OPTIONS_DEPWARN_ERROR 2
+
 #define JL_OPTIONS_FAST_MATH_ON 1
 #define JL_OPTIONS_FAST_MATH_OFF 2
 #define JL_OPTIONS_FAST_MATH_DEFAULT 0
 
 #define JL_OPTIONS_HANDLE_SIGNALS_ON 1
 #define JL_OPTIONS_HANDLE_SIGNALS_OFF 0
+
+#define JL_OPTIONS_USE_PRECOMPILED_YES 1
+#define JL_OPTIONS_USE_PRECOMPILED_NO 0
 
 // Version information
 #include "julia_version.h"

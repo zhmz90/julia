@@ -242,7 +242,7 @@ static size_t _ios_read(ios_t *s, char *dest, size_t n, int all)
 {
     size_t tot = 0;
     size_t got, avail;
-    //int result;
+    int didread = 0;
 
     if (s->state == bst_wr) {
         ios_seek(s, ios_pos(s));
@@ -256,9 +256,8 @@ static size_t _ios_read(ios_t *s, char *dest, size_t n, int all)
             size_t ncopy = (avail >= n) ? n : avail;
             memcpy(dest, s->buf + s->bpos, ncopy);
             s->bpos += ncopy;
-            if (ncopy >= n) {
+            if (ncopy >= n)
                 return tot+ncopy;
-            }
         }
         if (s->bm == bm_mem || s->fd == -1) {
             // can't get any more data
@@ -271,9 +270,10 @@ static size_t _ios_read(ios_t *s, char *dest, size_t n, int all)
         n -= avail;
         tot += avail;
 
+        if (didread && !all) return tot;
+
         ios_flush(s);
         s->bpos = s->size = 0;
-
         s->fpos = -1;
         if (n > MOST_OF(s->maxsize)) {
             // doesn't fit comfortably in buffer; go direct
@@ -302,6 +302,7 @@ static size_t _ios_read(ios_t *s, char *dest, size_t n, int all)
             }
             s->size = got;
         }
+        didread = 1;
     }
 
     return tot;
@@ -580,8 +581,6 @@ int ios_eof_blocking(ios_t *s)
         return (s->_eof ? 1 : 0);
     if (s->fd == -1)
         return 1;
-    if (s->_eof)
-        return 1;
 
     if (ios_readprep(s, 1) < 1)
         return 1;
@@ -838,6 +837,25 @@ static void _ios_init(ios_t *s)
 
 /* stream object initializers. we do no allocation. */
 
+#if !defined(_OS_WINDOWS_)
+static int open_cloexec(const char *path, int flags, mode_t mode)
+{
+#ifdef O_CLOEXEC
+    static int no_cloexec=0;
+
+    if (!no_cloexec) {
+        int fd = open(path, flags | O_CLOEXEC, mode);
+        if (fd != -1)
+            return fd;
+        if (errno != EINVAL)
+            return -1;
+        no_cloexec = 1;
+    }
+#endif
+    return open(path, flags, mode);
+}
+#endif
+
 ios_t *ios_file(ios_t *s, const char *fname, int rd, int wr, int create, int trunc)
 {
     int flags;
@@ -853,9 +871,9 @@ ios_t *ios_file(ios_t *s, const char *fname, int rd, int wr, int create, int tru
     if (!wlen) goto open_file_err;
     wchar_t *fname_w = (wchar_t*)alloca(wlen*sizeof(wchar_t));
     if (!MultiByteToWideChar(CP_UTF8, 0, fname, -1, fname_w, wlen)) goto open_file_err;
-    fd = _wopen(fname_w, flags | O_BINARY, _S_IREAD | _S_IWRITE);
+    fd = _wopen(fname_w, flags | O_BINARY | O_NOINHERIT, _S_IREAD | _S_IWRITE);
 #else
-    fd = open(fname, flags, S_IRUSR | S_IWUSR /* 0600 */ | S_IRGRP | S_IROTH /* 0644 */);
+    fd = open_cloexec(fname, flags, S_IRUSR | S_IWUSR /* 0600 */ | S_IRGRP | S_IROTH /* 0644 */);
 #endif
     s = ios_fd(s, fd, 1, 1);
     if (fd == -1)

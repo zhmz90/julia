@@ -11,7 +11,7 @@ New language features
     `T(...)` falls back to `convert(T, x)`, so all `convert` methods implicitly
     define a constructor ([#8712], [#2403]).
 
-  * Unicode version 7 is now supported for identifiers etcetera ([#7917]).
+  * Unicode version 8 is now supported for identifiers etcetera ([#7917], [#12031]).
 
   * Type parameters now permit any arbitrary `isbits` type, not just
     `Int` and `Bool` ([#6081]).
@@ -25,9 +25,8 @@ New language features
     specialize. The quoted expression it returns forms the body of the specialized
     method which is then called at run time ([#7311]).
 
-  * (Also with syntax todo) Documentation system for functions, methods, types
-    and macros in packages and user code ([#8791]). Type `?@doc` at the repl
-    to see the current syntax and more information.
+  * [Documentation system](http://docs.julialang.org/en/latest/manual/documentation/)
+    for functions, methods, types and macros in packages and user code ([#8791]).
 
   * The syntax `function foo end` can be used to introduce a generic function without
     yet adding any methods ([#8283]).
@@ -124,6 +123,12 @@ Language changes
 
   * The keyword `local` is no longer allowed in global scope. Use `let` instead of
     `begin` to create a new scope from the top level ([#7234], [#10472]).
+
+  * Triple-quoted strings no longer treat tabs as 8 spaces. Instead, the
+    longest common prefix of spaces and tabs is removed.
+
+  * `global x` in a nested scope is now a syntax error if `x` is local
+    to the enclosing scope ([#7264]/[#11985]).
 
 Command line option changes
 ---------------------------
@@ -273,6 +278,8 @@ Library improvements
 
     * Optional `log` and `log1p` functions implemented in pure Julia (experimental) ([#10008]).
 
+    * The `MathConst` type has been renamed `Irrational` ([#11922]).
+
   * Random numbers
 
     * Streamlined random number generation APIs [#8246].
@@ -335,6 +342,22 @@ Library improvements
 
 Deprecated or removed
 ---------------------
+
+  * several syntax whitespace insensitivities have been deprecated ([#11891]).
+    ```julia
+     # function call
+     f (x)
+
+     # getindex
+     x [17]
+     rand(2) [1]
+
+     # function definition
+     f (x) = x^2
+     function foo (x)
+	x^2
+     end
+    ```
 
   * indexing with Reals that are not subtypes of Integers (Rationals, FloatingPoint, etc.) has been deprecated ([#10458]).
 
@@ -1355,8 +1378,10 @@ Too numerous to mention.
 [#7125]: https://github.com/JuliaLang/julia/issues/7125
 [#7131]: https://github.com/JuliaLang/julia/issues/7131
 [#7146]: https://github.com/JuliaLang/julia/issues/7146
+[#7234]: https://github.com/JuliaLang/julia/issues/7234
 [#7236]: https://github.com/JuliaLang/julia/issues/7236
 [#7242]: https://github.com/JuliaLang/julia/issues/7242
+[#7264]: https://github.com/JuliaLang/julia/issues/7264
 [#7311]: https://github.com/JuliaLang/julia/issues/7311
 [#7359]: https://github.com/JuliaLang/julia/issues/7359
 [#7365]: https://github.com/JuliaLang/julia/issues/7365
@@ -1457,6 +1482,7 @@ Too numerous to mention.
 [#10400]: https://github.com/JuliaLang/julia/issues/10400
 [#10446]: https://github.com/JuliaLang/julia/issues/10446
 [#10458]: https://github.com/JuliaLang/julia/issues/10458
+[#10472]: https://github.com/JuliaLang/julia/issues/10472
 [#10525]: https://github.com/JuliaLang/julia/issues/10525
 [#10543]: https://github.com/JuliaLang/julia/issues/10543
 [#10659]: https://github.com/JuliaLang/julia/issues/10659
@@ -1481,3 +1507,7 @@ Too numerous to mention.
 [#11379]: https://github.com/JuliaLang/julia/issues/11379
 [#11432]: https://github.com/JuliaLang/julia/issues/11432
 [#11741]: https://github.com/JuliaLang/julia/issues/11741
+[#11891]: https://github.com/JuliaLang/julia/issues/11891
+[#11922]: https://github.com/JuliaLang/julia/issues/11922
+[#11985]: https://github.com/JuliaLang/julia/issues/11985
+[#12031]: https://github.com/JuliaLang/julia/issues/12031

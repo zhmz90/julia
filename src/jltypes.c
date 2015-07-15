@@ -160,7 +160,7 @@ int jl_is_leaf_type(jl_value_t *v)
         }
         else {
             for(int i=0; i < l; i++) {
-                if (jl_is_typevar(jl_svecref(t,i)))
+                if (jl_has_typevars(jl_svecref(t,i)))
                     return 0;
             }
         }
@@ -171,6 +171,19 @@ int jl_is_leaf_type(jl_value_t *v)
 
 static int type_eqv_(jl_value_t *a, jl_value_t *b);
 
+// Return true for any type (Integer or Unsigned) that can fit in a
+// size_t and pass back value, else return false
+int jl_get_size(jl_value_t *val, size_t *pnt)
+{
+    if (jl_is_long(val)) {
+        ssize_t slen = jl_unbox_long(val);
+        if (slen < 0)
+            jl_errorf("size or dimension is negative: %d", slen);
+        *pnt = slen;
+        return 1;
+    }
+    return 0;
+}
 // --- type union ---
 
 static int count_union_components(jl_value_t **types, size_t n)
@@ -854,11 +867,8 @@ static jl_value_t *jl_type_intersect(jl_value_t *a, jl_value_t *b,
             for(i=0; i < eqc->n; i+=2) {
                 if (eqc->data[i] == lenvar) {
                     jl_value_t *v = eqc->data[i+1];
-                    if (jl_is_long(v)) {
-                        // N is already known in NTuple{N,...}
-                        alen = jl_unbox_long(v);
-                        break;
-                    }
+                    // N is already known in NTuple{N,...}
+                    if (jl_get_size(v, (size_t *)&alen)) break;
                 }
             }
             b = (jl_value_t*)jl_tupletype_fill(alen, elty);
@@ -874,10 +884,10 @@ static jl_value_t *jl_type_intersect(jl_value_t *a, jl_value_t *b,
                         for(i=0; i < penv->n; i+=2) {
                             if (penv->data[i] == lenvar) {
                                 jl_value_t *v = penv->data[i+1];
-                                if (jl_is_long(v)) {
+                                size_t vallen;
+                                if (jl_get_size(v, &vallen)) {
                                     int bot = 0;
-                                    long met = meet_tuple_lengths(~jl_unbox_long(v),
-                                                                  ~(alen-1), &bot);
+                                    long met = meet_tuple_lengths(~vallen, ~(alen-1), &bot);
                                     if (bot) {
                                         JL_GC_POP();
                                         return (jl_value_t*)jl_bottom_type;
@@ -927,10 +937,18 @@ static jl_value_t *jl_type_intersect(jl_value_t *a, jl_value_t *b,
     if (jl_is_tuple_type(b)) {
         return jl_type_intersect(b, a, penv,eqc,var);
     }
-    if (jl_is_ntuple_type(a) && jl_is_type_type(b)) {
-        jl_value_t *temp = a;
-        a = b;
-        b = temp;
+    if (jl_is_ntuple_type(a)) {
+        if (jl_is_ntuple_type(b)) {
+            jl_value_t *tag = intersect_tag((jl_datatype_t*)a,
+                                            (jl_datatype_t*)b, penv, eqc, var);
+            // The length parameter must be a TypeVar
+            return tag == jl_bottom_type ? jl_typeof(jl_emptytuple) : tag;
+        }
+        else if (jl_is_type_type(b)) {
+            jl_value_t *temp = a;
+            a = b;
+            b = temp;
+        }
     }
     // tag
     if (!jl_is_datatype(a) || !jl_is_datatype(b))
@@ -1306,9 +1324,10 @@ static int solve_tvar_constraints(cenv_t *env, cenv_t *soln)
 
                 jl_value_t **pT = tvar_lookup(soln, &T);
                 if (pT != &T) {
-                    if (jl_is_long(S) && jl_is_long(*pT)) {
+                    size_t lenS, lenT;
+                    if (jl_get_size(S, &lenS) && jl_get_size(*pT, &lenT)) {
                         int bot = 0;
-                        long mv = meet_tuple_lengths(~jl_unbox_long(S), jl_unbox_long(*pT), &bot);
+                        long mv = meet_tuple_lengths(~lenS, lenT, &bot);
                         if (bot)
                             return 0;
                         // NOTE: this is unused. can we do anything with it?
@@ -1408,9 +1427,8 @@ jl_value_t *jl_type_intersection_matching(jl_value_t *a, jl_value_t *b,
     if (has_ntuple_intersect_tuple) {
         for(e=0; e < eqc.n; e+=2) {
             jl_value_t *val = eqc.data[e+1];
-            if (jl_is_long(val)) {
+            if (jl_is_long(val))
                 break;
-            }
         }
         if (e < eqc.n) {
             /*
@@ -1686,11 +1704,18 @@ jl_value_t *jl_apply_type_(jl_value_t *tc, jl_value_t **params, size_t n)
                              pi);
         }
     }
-    if (tc == (jl_value_t*)jl_ntuple_type && (n==1||n==2) &&
-        jl_is_long(params[0])) {
-        size_t nt = jl_unbox_long(params[0]);
-        return (jl_value_t*)jl_tupletype_fill(nt, (n==2) ? params[1] :
-                                              (jl_value_t*)jl_any_type);
+    if (tc == (jl_value_t*)jl_ntuple_type && (n == 1 || n == 2)) {
+        if (!jl_is_typevar(params[0])) {
+            size_t nt;
+            if (!jl_get_size(params[0], &nt)) {
+                // Only allow Int or TypeVar as the first parameter to
+                // NTuple. issue #9233
+                jl_type_error_rt("apply_type", "first parameter of NTuple",
+                                 (jl_value_t*)jl_long_type, params[0]);
+            }
+            return jl_tupletype_fill(nt, (n==2) ? params[1] :
+                                     (jl_value_t*)jl_any_type);
+        }
     }
     size_t ntp = jl_svec_len(tp);
     if (n > ntp)
@@ -1880,7 +1905,8 @@ int jl_assign_type_uid(void)
 
 static int is_cacheable(jl_datatype_t *type)
 {
-    // only cache concrete types
+    // only cache types whose behavior will not depend on the identities
+    // of contained TypeVars
     assert(jl_is_datatype(type));
     jl_svec_t *t = type->parameters;
     if (jl_svec_len(t) == 0) return 0;
@@ -2241,7 +2267,7 @@ static jl_value_t *inst_type_w_(jl_value_t *t, jl_value_t **env, size_t n,
                     }
                 }
             }
-            if (jl_is_typevar(iparams[i]))
+            if (jl_has_typevars(iparams[i]))
                 isabstract = 1;
         }
         if (jl_has_typevars_(iparams[i],0))
@@ -2525,7 +2551,7 @@ static int jl_tuple_morespecific_(jl_datatype_t *cdt, jl_datatype_t *pdt, int in
         int cseq = (ci<cl) && jl_is_vararg_type(child[ci]);
         int pseq = (pi<pl) && jl_is_vararg_type(parent[pi]);
         if (ci >= cl)
-            return some_morespecific || pi>=pl || (pseq && !invariant);
+            return 1;
         if (pi >= pl)
             return some_morespecific;
         jl_value_t *ce = child[ci];

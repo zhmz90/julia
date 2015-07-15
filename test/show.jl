@@ -263,3 +263,18 @@ end
 @test_repr "1 => 2 => 3"
 @test_repr "1 => (2 => 3)"
 @test_repr "(1 => 2) => 3"
+
+# pr 12008
+@test_repr "bitstype A B"
+@test_repr "bitstype 100 B"
+@test repr(:(bitstype A B)) == ":(bitstype A B)"
+@test repr(:(bitstype 100 B)) == ":(bitstype 100 B)"
+
+oldout = STDOUT
+try
+    rd, wr = redirect_stdout()
+    @test dump(STDERR) == nothing
+    @test xdump(STDERR) == nothing
+finally
+    redirect_stdout(oldout)
+end

@@ -6,8 +6,8 @@
 template<class T> // for GlobalObject's
 static T* addComdat(T *G)
 {
-    if (imaging_mode) {
-        Comdat *jl_Comdat = shadow_module->getOrInsertComdat(G->getName());
+    if (imaging_mode && (!G->isDeclarationForLinker())) {
+        Comdat *jl_Comdat = G->getParent()->getOrInsertComdat(G->getName());
         jl_Comdat->setSelectionKind(Comdat::NoDuplicates);
         G->setComdat(jl_Comdat);
     }
@@ -154,7 +154,7 @@ static GlobalVariable *stringConst(const std::string &txt)
 
 typedef struct {Value* gv; int32_t index;} jl_value_llvm; // uses 1-based indexing
 static std::map<void*, jl_value_llvm> jl_value_to_llvm;
-static std::map<Value *, void*> llvm_to_jl_value;
+DLLEXPORT std::map<Value *, void*> jl_llvm_to_jl_value;
 
 #ifdef USE_MCJIT
 class FunctionMover : public ValueMaterializer
@@ -277,8 +277,8 @@ public:
                 }
             }
             std::map<Value*, void *>::iterator it;
-            it = llvm_to_jl_value.find(GV);
-            if (it != llvm_to_jl_value.end()) {
+            it = jl_llvm_to_jl_value.find(GV);
+            if (it != jl_llvm_to_jl_value.end()) {
                 newGV->setInitializer(Constant::getIntegerValue(GV->getType()->getElementType(),APInt(sizeof(void*)*8,(ptrint_t)it->second)));
                 newGV->setConstant(true);
             }
@@ -357,34 +357,29 @@ extern "C" {
 }
 #endif
 
-static void jl_gen_llvm_gv_array(llvm::Module *mod, SmallVector<GlobalVariable*, 8> &globalvars)
+static void jl_gen_llvm_globaldata(llvm::Module *mod, ValueToValueMapTy &VMap, const char *sysimg_data, size_t sysimg_len)
 {
-    // emit the variable table into the code image. used just before dumping bitcode.
-    // afterwards, call eraseFromParent on everything in globalvars to reset code generator.
-    ArrayType *atype = ArrayType::get(T_psize,jl_sysimg_gvars.size());
-    globalvars.push_back(addComdat(new GlobalVariable(
-                    *mod,
-                    atype,
-                    true,
-                    GlobalVariable::ExternalLinkage,
-                    ConstantArray::get(atype, ArrayRef<Constant*>(jl_sysimg_gvars)),
-                    "jl_sysimg_gvars")));
-    globalvars.push_back(addComdat(new GlobalVariable(
-                    *mod,
-                    T_size,
-                    true,
-                    GlobalVariable::ExternalLinkage,
-                    ConstantInt::get(T_size,globalUnique+1),
-                    "jl_globalUnique")));
+    ArrayType *atype = ArrayType::get(T_psize, jl_sysimg_gvars.size());
+    addComdat(new GlobalVariable(*mod,
+                                 atype,
+                                 true,
+                                 GlobalVariable::ExternalLinkage,
+                                 MapValue(ConstantArray::get(atype, ArrayRef<Constant*>(jl_sysimg_gvars)), VMap),
+                                 "jl_sysimg_gvars"));
+    addComdat(new GlobalVariable(*mod,
+                                 T_size,
+                                 true,
+                                 GlobalVariable::ExternalLinkage,
+                                 ConstantInt::get(T_size,globalUnique+1),
+                                 "jl_globalUnique"));
 
     Constant *feature_string = ConstantDataArray::getString(jl_LLVMContext, jl_options.cpu_target);
-    globalvars.push_back(addComdat(new GlobalVariable(
-                    *mod,
-                    feature_string->getType(),
-                    true,
-                    GlobalVariable::ExternalLinkage,
-                    feature_string,
-                    "jl_sysimg_cpu_target")));
+    addComdat(new GlobalVariable(*mod,
+                                 feature_string->getType(),
+                                 true,
+                                 GlobalVariable::ExternalLinkage,
+                                 feature_string,
+                                 "jl_sysimg_cpu_target"));
 
 #ifdef HAVE_CPUID
     // For native also store the cpuid
@@ -392,28 +387,123 @@ static void jl_gen_llvm_gv_array(llvm::Module *mod, SmallVector<GlobalVariable*,
         uint32_t info[4];
 
         jl_cpuid((int32_t*)info, 1);
-        globalvars.push_back(addComdat(new GlobalVariable(
-                        *mod,
-                        T_int64,
-                        true,
-                        GlobalVariable::ExternalLinkage,
-                        ConstantInt::get(T_int64,((uint64_t)info[2])|(((uint64_t)info[3])<<32)),
-                        "jl_sysimg_cpu_cpuid")));
+        addComdat(new GlobalVariable(*mod,
+                                     T_int64,
+                                     true,
+                                     GlobalVariable::ExternalLinkage,
+                                     ConstantInt::get(T_int64,((uint64_t)info[2])|(((uint64_t)info[3])<<32)),
+                                     "jl_sysimg_cpu_cpuid"));
     }
 #endif
+
+    if (sysimg_data) {
+        Constant *data = ConstantDataArray::get(jl_LLVMContext, ArrayRef<uint8_t>((const unsigned char*)sysimg_data, sysimg_len));
+        addComdat(new GlobalVariable(*mod, data->getType(), true,
+                                     GlobalVariable::ExternalLinkage,
+                                     data, "jl_system_image_data"));
+        Constant *len = ConstantInt::get(T_size, sysimg_len);
+        addComdat(new GlobalVariable(*mod, len->getType(), true,
+                                     GlobalVariable::ExternalLinkage,
+                                     len, "jl_system_image_size"));
+    }
 }
 
-static void jl_sysimg_to_llvm(llvm::Module *mod, SmallVector<GlobalVariable*, 8> &globalvars,
-                              const char *sysimg_data, size_t sysimg_len)
+static void jl_dump_shadow(char *fname, int jit_model, const char *sysimg_data, size_t sysimg_len, bool dump_as_bc)
 {
-    Constant *data = ConstantDataArray::get(jl_LLVMContext, ArrayRef<uint8_t>((const unsigned char*)sysimg_data, sysimg_len));
-    globalvars.push_back(addComdat(new GlobalVariable(*mod, data->getType(), true,
-                                                      GlobalVariable::ExternalLinkage,
-                                                      data, "jl_system_image_data")));
-    Constant *len = ConstantInt::get(T_size, sysimg_len);
-    globalvars.push_back(addComdat(new GlobalVariable(*mod, len->getType(), true,
-                                                      GlobalVariable::ExternalLinkage,
-                                                      len, "jl_system_image_size")));
+#ifdef LLVM36
+    std::error_code err;
+    StringRef fname_ref = StringRef(fname);
+    raw_fd_ostream OS(fname_ref, err, sys::fs::F_None);
+#elif  LLVM35
+    std::string err;
+    raw_fd_ostream OS(fname, err, sys::fs::F_None);
+#else
+    std::string err;
+    raw_fd_ostream OS(fname, err);
+#endif
+#ifdef LLVM37 // 3.7 simplified formatted output; just use the raw stream alone
+    raw_fd_ostream& FOS(OS);
+#else
+    formatted_raw_ostream FOS(OS);
+#endif
+
+    // We don't want to use MCJIT's target machine because
+    // it uses the large code model and we may potentially
+    // want less optimizations there.
+    Triple TheTriple = Triple(jl_TargetMachine->getTargetTriple());
+#if defined(_OS_WINDOWS_) && defined(FORCE_ELF)
+#ifdef LLVM35
+    TheTriple.setObjectFormat(Triple::COFF);
+#else
+    TheTriple.setEnvironment(Triple::UnknownEnvironment);
+#endif
+#elif defined(_OS_DARWIN_) && defined(FORCE_ELF)
+#ifdef LLVM35
+    TheTriple.setObjectFormat(Triple::MachO);
+#else
+    TheTriple.setEnvironment(Triple::MachO);
+#endif
+#endif
+#ifdef LLVM35
+    std::unique_ptr<TargetMachine>
+#else
+    OwningPtr<TargetMachine>
+#endif
+    TM(jl_TargetMachine->getTarget().createTargetMachine(
+        TheTriple.getTriple(),
+        jl_TargetMachine->getTargetCPU(),
+        jl_TargetMachine->getTargetFeatureString(),
+        jl_TargetMachine->Options,
+#if defined(_OS_LINUX_) || defined(_OS_FREEBSD_)
+        Reloc::PIC_,
+#else
+        jit_model ? Reloc::PIC_ : Reloc::Default,
+#endif
+        jit_model ? CodeModel::JITDefault : CodeModel::Default,
+        CodeGenOpt::Aggressive // -O3
+        ));
+
+    PassManager PM;
+    if (!dump_as_bc) {
+#ifndef LLVM37
+        PM.add(new TargetLibraryInfo(Triple(TM->getTargetTriple())));
+#else
+        PM.add(new TargetLibraryInfoWrapperPass(Triple(TM->getTargetTriple())));
+#endif
+#ifdef LLVM37
+    // No DataLayout pass needed anymore.
+#elif LLVM36
+        PM.add(new DataLayoutPass());
+#elif LLVM35
+        PM.add(new DataLayoutPass(*jl_ExecutionEngine->getDataLayout()));
+#else
+        PM.add(new DataLayout(*jl_ExecutionEngine->getDataLayout()));
+#endif
+
+
+        if (TM->addPassesToEmitFile(PM, FOS, TargetMachine::CGFT_ObjectFile, false)) {
+            jl_error("Could not generate obj file for this target");
+        }
+    }
+
+    // now copy the module, since PM.run may modify it
+    ValueToValueMapTy VMap;
+    Module *clone = CloneModule(shadow_module, VMap);
+#ifdef USE_MCJIT
+    // Reset the target triple to make sure it matches the new target machine
+    clone->setTargetTriple(TM->getTargetTriple().str());
+    clone->setDataLayout(TM->getDataLayout()->getStringRepresentation());
+#endif
+
+    // add metadata information
+    jl_gen_llvm_globaldata(clone, VMap, sysimg_data, sysimg_len);
+
+    // do the actual work
+    if (!dump_as_bc)
+        PM.run(*clone);
+    else
+        WriteBitcodeToFile(clone, FOS);
+    delete clone;
 }
 
 static int32_t jl_assign_functionID(Function *functionObject)
@@ -444,7 +534,7 @@ static Value *julia_gv(const char *cname, void *addr)
 
     // make the pointer valid for this session
 #ifdef USE_MCJIT
-    llvm_to_jl_value[gv] = addr;
+    jl_llvm_to_jl_value[gv] = addr;
 #else
     void **p = (void**)jl_ExecutionEngine->getPointerToGlobal(gv);
     *p = addr;
@@ -1334,13 +1424,13 @@ static Value *emit_getfield_unknownidx(Value *strct, Value *idx, jl_datatype_t *
     }
     else if (is_tupletype_homogeneous(stt->types)) {
         assert(jl_isbits(stt));
-        assert(!jl_field_isptr(stt, 0));
         if (nfields == 0) {
             // TODO: pass correct thing to emit_bounds_check ?
             idx = emit_bounds_check(tbaa_decorate(tbaa_const, builder.CreateLoad(prepare_global(jlemptysvec_var))),
                                     (jl_value_t*)stt, idx, ConstantInt::get(T_size, nfields), ctx);
             return UndefValue::get(jl_pvalue_llvmt);
         }
+        assert(!jl_field_isptr(stt, 0));
         jl_value_t *jt = jl_field_type(stt,0);
         if (!stt->uid) {
             // add root for types not cached

@@ -62,7 +62,12 @@ ndims{T<:AbstractArray}(::Type{T}) = ndims(super(T))
 length(t::AbstractArray) = prod(size(t))::Int
 endof(a::AbstractArray) = length(a)
 first(a::AbstractArray) = a[1]
-first(a) = (s = start(a); done(a, s) ? throw(ArgumentError("collection must be non-empty")) : next(a, s)[1])
+
+function first(itr)
+    state = start(itr)
+    done(itr, state) && throw(ArgumentError("collection must be non-empty"))
+    next(itr, state)[1]
+end
 last(a) = a[end]
 
 function stride(a::AbstractArray, i::Integer)
@@ -124,6 +129,7 @@ end
 
 ## Bounds checking ##
 @generated function trailingsize{T,N,n}(A::AbstractArray{T,N}, ::Type{Val{n}})
+    n > N && return 1
     ex = :(size(A, $n))
     for m = n+1:N
         ex = :($ex * size(A, $m))
@@ -150,20 +156,24 @@ throw_boundserror(A, I) = (@_noinline_meta; throw(BoundsError(A, I)))
 
 checkbounds(A::AbstractArray, I::AbstractArray{Bool}) = size(A) == size(I) || throw_boundserror(A, I)
 checkbounds(A::AbstractArray, I::AbstractVector{Bool}) = length(A) == length(I) || throw_boundserror(A, I)
-checkbounds(A::AbstractArray, I) = (@_inline_meta; _checkbounds(length(A), I) || throw_boundserror(A, I))
+checkbounds(A::AbstractArray, I::Union{Real,AbstractArray,Colon}) = (@_inline_meta; _checkbounds(length(A), I) || throw_boundserror(A, I))
 function checkbounds(A::AbstractMatrix, I::Union{Real,AbstractArray,Colon}, J::Union{Real,AbstractArray,Colon})
     @_inline_meta
-    (_checkbounds(size(A,1), I) && _checkbounds(size(A,2), J)) || throw_boundserror(A, (I, J))
+    (_checkbounds(size(A,1), I) && _checkbounds(size(A,2), J)) ||
+        throw_boundserror(A, (I, J))
 end
 function checkbounds(A::AbstractArray, I::Union{Real,AbstractArray,Colon}, J::Union{Real,AbstractArray,Colon})
     @_inline_meta
-    (_checkbounds(size(A,1), I) && _checkbounds(trailingsize(A,Val{2}), J)) || throw_boundserror(A, (I, J))
+    (_checkbounds(size(A,1), I) && _checkbounds(trailingsize(A,Val{2}), J)) ||
+        throw_boundserror(A, (I, J))
 end
 @generated function checkbounds(A::AbstractArray, I::Union{Real,AbstractArray,Colon}...)
     meta = Expr(:meta, :inline)
     N = length(I)
-    args = Expr[:(_checkbounds(size(A,$dim), I[$dim]) || throw_boundserror(A, I)) for dim in 1:N-1]
-    push!(args, :(_checkbounds(trailingsize(A,Val{$N}), I[$N]) || throw_boundserror(A, I)))
+    Isplat = [:(I[$d]) for d=1:N]
+    error = :(throw_boundserror(A, tuple($(Isplat...))))
+    args = Expr[:(_checkbounds(size(A,$dim), I[$dim]) || $error) for dim in 1:N-1]
+    push!(args, :(_checkbounds(trailingsize(A,Val{$N}), I[$N]) || $error))
     Expr(:block, meta, args...)
 end
 
@@ -185,16 +195,16 @@ end
 
 # default arguments to similar()
 similar{T}(a::AbstractArray{T})               = similar(a, T, size(a))
-similar   (a::AbstractArray, T)               = similar(a, T, size(a))
+similar(   a::AbstractArray, T)               = similar(a, T, size(a))
 similar{T}(a::AbstractArray{T}, dims::Dims)   = similar(a, T, dims)
 similar{T}(a::AbstractArray{T}, dims::Int...) = similar(a, T, dims)
-similar   (a::AbstractArray, T, dims::Int...) = similar(a, T, dims)
+similar(   a::AbstractArray, T, dims::Int...) = similar(a, T, dims)
 # similar creates an Array by default
-similar   (a::AbstractArray, T, dims::Dims)   = Array(T, dims)
+similar(   a::AbstractArray, T, dims::Dims)   = Array(T, dims)
 
 function reshape(a::AbstractArray, dims::Dims)
     if prod(dims) != length(a)
-        throw(ArgumentError("dimensions must be consistent with array size"))
+        throw(ArgumentError("dimensions must be consistent with array size (expected $(length(a)), got $(prod(dims)))"))
     end
     copy!(similar(a, dims), a)
 end
@@ -213,11 +223,11 @@ end
 
 # if src is not an AbstractArray, moving to the offset might be O(n)
 function copy!(dest::AbstractArray, doffs::Integer, src)
-    doffs < 1 && throw(BoundsError())
+    doffs < 1 && throw(BoundsError(dest, doffs))
     st = start(src)
     i, dmax = doffs, length(dest)
     @inbounds while !done(src, st)
-        i > dmax && throw(BoundsError())
+        i > dmax && throw(BoundsError(dest, i))
         val, st = next(src, st)
         dest[i] = val
         i += 1
@@ -225,20 +235,28 @@ function copy!(dest::AbstractArray, doffs::Integer, src)
     return dest
 end
 
+# copy from an some iterable object into an AbstractArray
 function copy!(dest::AbstractArray, doffs::Integer, src, soffs::Integer)
     if (doffs < 1) | (soffs < 1)
-        throw(BoundsError())
+        doffs < 1 && throw(BoundsError(dest, doffs))
+        throw(ArgumentError(string("source start offset (",soffs,") is < 1")))
     end
     st = start(src)
     for j = 1:(soffs-1)
-        done(src, st) && throw(BoundsError())
+        if done(src, st)
+            throw(ArgumentError(string("source has fewer elements than required, ",
+                                       "expected at least ",soffs,", got ",j-1)))
+        end
         _, st = next(src, st)
     end
     dn = done(src, st)
-    dn && throw(BoundsError())
+    if dn
+        throw(ArgumentError(string("source has fewer elements than required, ",
+                                      "expected at least ",soffs,", got ",soffs-1)))
+    end
     i, dmax = doffs, length(dest)
     @inbounds while !dn
-        i > dmax && throw(BoundsError())
+        i > dmax && throw(BoundsError(dest, i))
         val, st = next(src, st)
         dest[i] = val
         i += 1
@@ -249,15 +267,20 @@ end
 
 # this method must be separate from the above since src might not have a length
 function copy!(dest::AbstractArray, doffs::Integer, src, soffs::Integer, n::Integer)
-    n < 0 && throw(BoundsError())
+    n < 0 && throw(BoundsError(dest, n))
     n == 0 && return dest
     dmax = doffs + n - 1
     if (dmax > length(dest)) | (doffs < 1) | (soffs < 1)
-        throw(BoundsError())
+        doffs < 1 && throw(BoundsError(dest, doffs))
+        soffs < 1 && throw(ArgumentError(string("source start offset (",soffs,") is < 1")))
+        throw(BoundsError(dest, dmax))
     end
     st = start(src)
     for j = 1:(soffs-1)
-        done(src, st) && throw(BoundsError())
+        if done(src, st)
+            throw(ArgumentError(string("source has fewer elements than required, ",
+                                       "expected at least ",soffs,", got ",j-1)))
+        end
         _, st = next(src, st)
     end
     i = doffs
@@ -266,7 +289,7 @@ function copy!(dest::AbstractArray, doffs::Integer, src, soffs::Integer, n::Inte
         dest[i] = val
         i += 1
     end
-    i <= dmax && throw(BoundsError())
+    i <= dmax && throw(BoundsError(dest, i))
     return dest
 end
 
@@ -275,9 +298,7 @@ end
 
 function copy!(dest::AbstractArray, src::AbstractArray)
     n = length(src)
-    if n > length(dest)
-        throw(BoundsError())
-    end
+    n > length(dest) && throw(BoundsError(dest, n))
     @inbounds for i = 1:n
         dest[i] = src[i]
     end
@@ -287,16 +308,21 @@ end
 function copy!(dest::AbstractArray, doffs::Integer, src::AbstractArray)
     copy!(dest, doffs, src, 1, length(src))
 end
+
 function copy!(dest::AbstractArray, doffs::Integer, src::AbstractArray, soffs::Integer)
-    soffs > length(src) && throw(BoundsError())
+    soffs > length(src) && throw(BoundsError(src, soffs))
     copy!(dest, doffs, src, soffs, length(src)-soffs+1)
 end
-function copy!(dest::AbstractArray, doffs::Integer, src::AbstractArray, soffs::Integer, n::Integer)
-    n < 0 && throw(BoundsError())
+
+function copy!(dest::AbstractArray, doffs::Integer,
+               src::AbstractArray, soffs::Integer,
+               n::Integer)
     n == 0 && return dest
-    if soffs+n-1 > length(src) || doffs+n-1 > length(dest) || doffs < 1 || soffs < 1
-        throw(BoundsError())
-    end
+    n < 0  && throw(BoundsError(src, n))
+    soffs+n-1 > length(src)  && throw(BoundsError(src, soffs+n-1))
+    doffs+n-1 > length(dest) && throw(BoundsError(dest, doffs+n-1))
+    doffs < 1 && throw(BoundsError(dest, doffs))
+    soffs < 1 && throw(BoundsError(src, soffs))
     @inbounds for i = 0:(n-1)
         dest[doffs+i] = src[soffs+i]
     end
@@ -305,9 +331,15 @@ end
 
 copy(a::AbstractArray) = copy!(similar(a), a)
 
-function copy!{R,S}(B::AbstractVecOrMat{R}, ir_dest::Range{Int}, jr_dest::Range{Int}, A::AbstractVecOrMat{S}, ir_src::Range{Int}, jr_src::Range{Int})
-    if length(ir_dest) != length(ir_src) || length(jr_dest) != length(jr_src)
-        throw(ArgumentError("source and destination must have same size"))
+function copy!{R,S}(B::AbstractVecOrMat{R}, ir_dest::Range{Int}, jr_dest::Range{Int},
+                    A::AbstractVecOrMat{S}, ir_src::Range{Int}, jr_src::Range{Int})
+    if length(ir_dest) != length(ir_src)
+        throw(ArgumentError(string("source and destination must have same size (got ",
+                                   length(ir_src)," and ",length(ir_dest),")")))
+    end
+    if length(jr_dest) != length(jr_src)
+        throw(ArgumentError(string("source and destination must have same size (got ",
+                                   length(jr_src)," and ",length(jr_dest),")")))
     end
     checkbounds(B, ir_dest, jr_dest)
     checkbounds(A, ir_src, jr_src)
@@ -323,9 +355,15 @@ function copy!{R,S}(B::AbstractVecOrMat{R}, ir_dest::Range{Int}, jr_dest::Range{
     return B
 end
 
-function copy_transpose!{R,S}(B::AbstractVecOrMat{R}, ir_dest::Range{Int}, jr_dest::Range{Int}, A::AbstractVecOrMat{S}, ir_src::Range{Int}, jr_src::Range{Int})
-    if length(ir_dest) != length(jr_src) || length(jr_dest) != length(ir_src)
-        throw(ArgumentError("source and destination must have same size"))
+function copy_transpose!{R,S}(B::AbstractVecOrMat{R}, ir_dest::Range{Int}, jr_dest::Range{Int},
+                              A::AbstractVecOrMat{S}, ir_src::Range{Int}, jr_src::Range{Int})
+    if length(ir_dest) != length(jr_src)
+        throw(ArgumentError(string("source and destination must have same size (got ",
+                                   length(jr_src)," and ",length(ir_dest),")")))
+    end
+    if length(jr_dest) != length(ir_src)
+        throw(ArgumentError(string("source and destination must have same size (got ",
+                                   length(ir_src)," and ",length(jr_dest),")")))
     end
     checkbounds(B, ir_dest, jr_dest)
     checkbounds(A, ir_src, jr_src)
@@ -396,7 +434,7 @@ map{T<:FloatingPoint}(::Type{T}, r::FloatRange) = FloatRange(T(r.start), T(r.ste
 # a data Ref. they just map the array element type to the pointer type for
 # convenience in cases that work.
 pointer{T}(x::AbstractArray{T}) = unsafe_convert(Ptr{T}, x)
-pointer{T}(x::AbstractArray{T}, i::Integer) = unsafe_convert(Ptr{T},x) + (i-1)*elsize(x)
+pointer{T}(x::AbstractArray{T}, i::Integer) = (@_inline_meta; unsafe_convert(Ptr{T},x) + (i-1)*elsize(x))
 
 
 ## Approach:
@@ -425,10 +463,17 @@ function unsafe_getindex(A::AbstractArray, I...)
     _unsafe_getindex(linearindexing(A), A, I...)
 end
 ## Internal defitions
+# 0-dimensional indexing is defined to prevent ambiguities. LinearFast is easy:
 _getindex(::LinearFast, A::AbstractArray) = (@_inline_meta; getindex(A, 1))
-_getindex(::LinearSlow, A::AbstractArray) = (@_inline_meta; _getindex(A, 1))
+# But LinearSlow must take into account the dimensionality of the array:
+_getindex{T}(::LinearSlow, A::AbstractArray{T,0}) = error("indexing not defined for ", typeof(A))
+_getindex(::LinearSlow, A::AbstractVector) = (@_inline_meta; getindex(A, 1))
+_getindex(l::LinearSlow, A::AbstractArray) = (@_inline_meta; _getindex(l, A, 1))
 _unsafe_getindex(::LinearFast, A::AbstractArray) = (@_inline_meta; unsafe_getindex(A, 1))
-_unsafe_getindex(::LinearSlow, A::AbstractArray) = (@_inline_meta; _unsafe_getindex(A, 1))
+_unsafe_getindex{T}(::LinearSlow, A::AbstractArray{T,0}) = error("indexing not defined for ", typeof(A))
+_unsafe_getindex(::LinearSlow, A::AbstractVector) = (@_inline_meta; unsafe_getindex(A, 1))
+_unsafe_getindex(l::LinearSlow, A::AbstractArray) = (@_inline_meta; _unsafe_getindex(l, A, 1))
+
 _getindex(::LinearIndexing, A::AbstractArray, I...) = error("indexing $(typeof(A)) with types $(typeof(I)) is not supported")
 _unsafe_getindex(::LinearIndexing, A::AbstractArray, I...) = error("indexing $(typeof(A)) with types $(typeof(I)) is not supported")
 
@@ -438,12 +483,12 @@ function _getindex(::LinearFast, A::AbstractArray, I::Real...)
     @_inline_meta
     # We must check bounds for sub2ind; so we can then call unsafe_getindex
     checkbounds(A, I...)
-    unsafe_getindex(A, sub2ind(size(A), to_index(I)...))
+    unsafe_getindex(A, sub2ind(size(A), to_indexes(I...)...))
 end
 _unsafe_getindex(::LinearFast, A::AbstractArray, I::Int) = (@_inline_meta; getindex(A, I))
 function _unsafe_getindex(::LinearFast, A::AbstractArray, I::Real...)
     @_inline_meta
-    unsafe_getindex(A, sub2ind(size(A), to_index(I)...))
+    unsafe_getindex(A, sub2ind(size(A), to_indexes(I...)...))
 end
 
 # LinearSlow Scalar indexing
@@ -518,9 +563,13 @@ function unsafe_setindex!(A::AbstractArray, v, I...)
 end
 ## Internal defitions
 _setindex!(::LinearFast, A::AbstractArray, v) = (@_inline_meta; setindex!(A, v, 1))
-_setindex!(::LinearSlow, A::AbstractArray, v) = (@_inline_meta; _setindex!(A, v, 1))
+_setindex!{T}(::LinearSlow, A::AbstractArray{T,0}, v) = error("indexing not defined for ", typeof(A))
+_setindex!(::LinearSlow, A::AbstractVector, v) = (@_inline_meta; setindex!(A, v, 1))
+_setindex!(l::LinearSlow, A::AbstractArray, v) = (@_inline_meta; _setindex!(l, A, v, 1))
 _unsafe_setindex!(::LinearFast, A::AbstractArray, v) = (@_inline_meta; unsafe_setindex!(A, v, 1))
-_unsafe_setindex!(::LinearSlow, A::AbstractArray, v) = (@_inline_meta; _unsafe_setindex!(A, v, 1))
+_unsafe_setindex!{T}(::LinearSlow, A::AbstractArray{T,0}, v) = error("indexing not defined for ", typeof(A))
+_unsafe_setindex!(::LinearSlow, A::AbstractVector, v) = (@_inline_meta; unsafe_setindex!(A, v, 1))
+_unsafe_setindex!(l::LinearSlow, A::AbstractArray, v) = (@_inline_meta; _unsafe_setindex!(l, A, v, 1))
 _setindex!(::LinearIndexing, A::AbstractArray, v, I...) = error("indexing $(typeof(A)) with types $(typeof(I)) is not supported")
 _unsafe_setindex!(::LinearIndexing, A::AbstractArray, v, I...) = error("indexing $(typeof(A)) with types $(typeof(I)) is not supported")
 
@@ -530,12 +579,12 @@ function _setindex!(::LinearFast, A::AbstractArray, v, I::Real...)
     @_inline_meta
     # We must check bounds for sub2ind; so we can then call unsafe_setindex!
     checkbounds(A, I...)
-    unsafe_setindex!(A, v, sub2ind(size(A), to_index(I)...))
+    unsafe_setindex!(A, v, sub2ind(size(A), to_indexes(I...)...))
 end
 _unsafe_setindex!(::LinearFast, A::AbstractArray, v, I::Int) = (@_inline_meta; setindex!(A, v, I))
 function _unsafe_setindex!(::LinearFast, A::AbstractArray, v, I::Real...)
     @_inline_meta
-    unsafe_setindex!(A, v, sub2ind(size(A), to_index(I)...))
+    unsafe_setindex!(A, v, sub2ind(size(A), to_indexes(I...)...))
 end
 
 # LinearSlow Scalar indexing
@@ -676,7 +725,7 @@ function hcat{T}(A::AbstractVecOrMat{T}...)
     for j = 1:nargs
         Aj = A[j]
         if size(Aj, 1) != nrows
-            throw(ArgumentError("number of rows must match"))
+            throw(ArgumentError("number of rows of each array must match (got $(map(x->size(x,1), A)))"))
         end
         dense &= isa(Aj,Array)
         nd = ndims(Aj)
@@ -708,7 +757,7 @@ function vcat{T}(A::AbstractMatrix{T}...)
     ncols = size(A[1], 2)
     for j = 2:nargs
         if size(A[j], 2) != ncols
-            throw(ArgumentError("number of columns must match"))
+            throw(ArgumentError("number of columns of each array must match (got $(map(x->size(x,2), A)))"))
         end
     end
     B = similar(full(A[1]), nrows, ncols)
@@ -747,11 +796,13 @@ function cat_t(catdims, typeC::Type, X...)
     for i = 2:nargs
         for d = 1:ndimsC
             currentdim = (d <= ndimsX[i] ? size(X[i],d) : 1)
-            if dims2cat[d]==0
-                dimsC[d] == currentdim || throw(DimensionMismatch("mismatch in dimension $(d)"))
-            else
+            if dims2cat[d] != 0
                 dimsC[d] += currentdim
                 catsizes[i,dims2cat[d]] = currentdim
+            elseif dimsC[d] != currentdim
+                throw(DimensionMismatch(string("mismatch in dimension ",d,
+                                               " (expected ",dimsC[d],
+                                               " got ",currentdim,")")))
             end
         end
     end
@@ -763,7 +814,8 @@ function cat_t(catdims, typeC::Type, X...)
 
     offsets = zeros(Int,length(catdims))
     for i=1:nargs
-        cat_one = [ dims2cat[d]==0 ? (1:dimsC[d]) : (offsets[dims2cat[d]]+(1:catsizes[i,dims2cat[d]])) for d=1:ndimsC]
+        cat_one = [ dims2cat[d] == 0 ? (1:dimsC[d]) : (offsets[dims2cat[d]]+(1:catsizes[i,dims2cat[d]]))
+                   for d=1:ndimsC ]
         C[cat_one...] = X[i]
         for k = 1:length(catdims)
             offsets[k] += catsizes[i,k]
@@ -803,9 +855,8 @@ typed_hcat(T::Type, A::AbstractArray...) = cat_t(2, T, A...)
 function hvcat(nbc::Integer, as...)
     # nbc = # of block columns
     n = length(as)
-    if mod(n,nbc) != 0
-        throw(ArgumentError("all rows must have the same number of block columns"))
-    end
+    mod(n,nbc) != 0 &&
+        throw(ArgumentError("number of arrays $n is not a multiple of the requested number of block columns $nbc"))
     nbr = div(n,nbc)
     hvcat(ntuple(i->nbc, nbr), as...)
 end
@@ -836,16 +887,16 @@ function hvcat{T}(rows::Tuple{Vararg{Int}}, as::AbstractMatrix{T}...)
             Aj = as[a+j-1]
             szj = size(Aj,2)
             if size(Aj,1) != szi
-                throw(ArgumentError("mismatched height in block row $(i)"))
+                throw(ArgumentError("mismatched height in block row $(i) (expected $szi, got $(size(Aj,1)))"))
             end
             if c-1+szj > nc
-                throw(ArgumentError("block row $(i) has mismatched number of columns"))
+                throw(ArgumentError("block row $(i) has mismatched number of columns (expected $nc, got $(c-1+szj))"))
             end
             out[r:r-1+szi, c:c-1+szj] = Aj
             c += szj
         end
         if c != nc+1
-            throw(ArgumentError("block row $(i) has mismatched number of columns"))
+            throw(ArgumentError("block row $(i) has mismatched number of columns (expected $nc, got $(c-1))"))
         end
         r += szi
         a += rows[i]
@@ -861,12 +912,12 @@ function hvcat{T<:Number}(rows::Tuple{Vararg{Int}}, xs::T...)
 
     a = Array(T, nr, nc)
     if length(a) != length(xs)
-        throw(ArgumentError("argument count does not match specified shape"))
+        throw(ArgumentError("argument count does not match specified shape (expected $(length(a)), got $(length(xs)))"))
     end
     k = 1
     @inbounds for i=1:nr
         if nc != rows[i]
-            throw(ArgumentError("row $(i) has mismatched number of columns"))
+            throw(ArgumentError("row $(i) has mismatched number of columns (expected $nc, got $(rows[i]))"))
         end
         for j=1:nc
             a[i,j] = xs[k]
@@ -893,7 +944,7 @@ function typed_hvcat(T::Type, rows::Tuple{Vararg{Int}}, xs::Number...)
     nc = rows[1]
     for i = 2:nr
         if nc != rows[i]
-            throw(ArgumentError("row $(i) has mismatched number of columns"))
+            throw(ArgumentError("row $(i) has mismatched number of columns (expected $nc, got $(rows[i]))"))
         end
     end
     len = length(xs)
@@ -1017,7 +1068,7 @@ function sub2ind{T<:Integer}(dims::Tuple{Vararg{Integer}}, I::AbstractVector{T}.
         for i=1:M
             indices[i] += s*(Ij[i]-1)
         end
-        s*= (j <= N ? dims[j] : 1)
+        s *= (j <= N ? dims[j] : 1)
     end
     return indices
 end
@@ -1111,7 +1162,10 @@ function map(f, iters...)
     nxtvals = cell(len)
     cont = true
     for idx in 1:len
-        done(iters[idx], states[idx]) && (cont = false; break)
+        if done(iters[idx], states[idx])
+            cont = false
+            break
+        end
     end
     while cont
         for idx in 1:len
@@ -1119,7 +1173,10 @@ function map(f, iters...)
         end
         push!(result, f(nxtvals...))
         for idx in 1:len
-            done(iters[idx], states[idx]) && (cont = false; break)
+            if done(iters[idx], states[idx])
+                cont = false
+                break
+            end
         end
     end
     result
@@ -1130,8 +1187,8 @@ end
 ## transform any set of dimensions
 ## dims specifies which dimensions will be transformed. for example
 ## dims==1:2 will call f on all slices A[:,:,...]
-mapslices(f::Function, A::AbstractArray, dims) = mapslices(f, A, [dims...])
-function mapslices(f::Function, A::AbstractArray, dims::AbstractVector)
+mapslices(f, A::AbstractArray, dims) = mapslices(f, A, [dims...])
+function mapslices(f, A::AbstractArray, dims::AbstractVector)
     if isempty(dims)
         return map(f,A)
     end

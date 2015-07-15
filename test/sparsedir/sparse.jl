@@ -93,7 +93,10 @@ for i = 1:5
     α = rand(Complex128)
     β = rand(Complex128)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
+    @test (maximum(abs(A_mul_B!(similar(b), a, b) - full(a)*b)) < 100*eps()) # for compatibility with present matmul API. Should go away eventually.
+    @test (maximum(abs(A_mul_B!(similar(c), a, c) - full(a)*c)) < 100*eps()) # for compatibility with present matmul API. Should go away eventually.
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -108,6 +111,7 @@ for i = 1:5
     b = randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -116,6 +120,7 @@ for i = 1:5
     b = randn(5,3) + im*randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -125,6 +130,7 @@ for i = 1:5
     b = randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -133,6 +139,7 @@ for i = 1:5
     b = randn(5,3) + im*randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -142,6 +149,7 @@ for i = 1:5
     b = randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -150,6 +158,7 @@ for i = 1:5
     b = randn(5,3) + im*randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -159,6 +168,7 @@ for i = 1:5
     b = randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -166,6 +176,7 @@ for i = 1:5
     b = randn(5,3) + im*randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -995,3 +1006,10 @@ A1[2:5,1] = 1
 nonzeros(A1)[2:5]=0
 @test A1==A2
 @test sparse([1,1,0])!=sparse([0,1,1])
+
+# UniformScaling
+A = sprandn(10,10,0.5)
+@test A + I == full(A) + I
+@test I + A == I + full(A)
+@test A - I == full(A) - I
+@test I - A == I - full(A)

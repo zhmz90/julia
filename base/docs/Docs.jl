@@ -10,12 +10,16 @@ export doc
 
 const modules = Module[]
 
-meta() = current_module().META
+const META′ = :__META__
 
-macro init ()
-    META = esc(:META)
+meta(mod) = mod.(META′)
+
+meta() = meta(current_module())
+
+macro init()
+    META = esc(META′)
     quote
-        if !isdefined(:META)
+        if !isdefined($(Expr(:quote, META′)))
             const $META = ObjectIdDict()
             doc!($META, @doc_str $("Documentation metadata for `$(current_module())`."))
             push!(modules, current_module())
@@ -30,7 +34,7 @@ end
 
 function doc(obj)
     for mod in modules
-        haskey(mod.META, obj) && return mod.META[obj]
+        haskey(meta(mod), obj) && return meta(mod)[obj]
     end
 end
 
@@ -73,17 +77,21 @@ function trackmethod(def)
 end
 
 type FuncDoc
+    main
     order::Vector{Method}
-    meta::Dict{Method, Any}
-    source::Dict{Method, Any}
+    meta::ObjectIdDict
+    source::ObjectIdDict
 end
 
-FuncDoc() = FuncDoc(Method[], Dict(), Dict())
+FuncDoc() = FuncDoc(nothing, [], ObjectIdDict(), ObjectIdDict())
 
-getset(coll, key, default) = coll[key] = get(coll, key, default)
+function doc!(f::Function, data)
+    fd = get!(meta(), f, FuncDoc())
+    fd.main = data
+end
 
 function doc!(f::Function, m::Method, data, source)
-    fd = getset(meta(), f, FuncDoc())
+    fd = get!(meta(), f, FuncDoc())
     isa(fd, FuncDoc) || error("Can't document a method when the function already has metadata")
     !haskey(fd.meta, m) && push!(fd.order, m)
     fd.meta[m] = data
@@ -93,8 +101,9 @@ end
 function doc(f::Function)
     docs = []
     for mod in modules
-        if haskey(mod.META, f)
-            fd = mod.META[f]
+        if haskey(meta(mod), f)
+            fd = meta(mod)[f]
+            length(docs) == 0 && fd.main != nothing && push!(docs, fd.main)
             if isa(fd, FuncDoc)
                 for m in fd.order
                     push!(docs, fd.meta[m])
@@ -109,19 +118,94 @@ end
 
 function doc(f::Function, m::Method)
     for mod in modules
-        haskey(mod.META, f) && isa(mod.META[f], FuncDoc) && haskey(mod.META[f].meta, m) &&
-            return mod.META[f].meta[m]
+        haskey(meta(mod), f) && isa(meta(mod)[f], FuncDoc) && haskey(meta(mod)[f].meta, m) &&
+            return meta(mod)[f].meta[m]
     end
 end
 
 catdoc() = nothing
 catdoc(xs...) = vcat(xs...)
 
+# Type Documentation
+
+isdoc(x) = isexpr(x, :string, AbstractString) ||
+    (isexpr(x, :macrocall) && endswith(string(x.args[1]), "_str"))
+
+dict_expr(d) = :(Dict($([:($(Expr(:quote, f)) => $d) for (f, d) in d]...)))
+
+function field_meta(def)
+    meta = Dict()
+    doc = nothing
+    for l in def.args[3].args
+        if isdoc(l)
+            doc = mdify(l)
+        elseif doc != nothing && isexpr(l, Symbol, :(::))
+            meta[namify(l)] = doc
+            doc = nothing
+        end
+    end
+    return dict_expr(meta)
+end
+
+type TypeDoc
+    main
+    fields::Dict{Symbol, Any}
+    order::Vector{Method}
+    meta::ObjectIdDict
+end
+
+TypeDoc() = TypeDoc(nothing, Dict(), [], ObjectIdDict())
+
+function doc!(t::DataType, data, fields)
+    td = get!(meta(), t, TypeDoc())
+    td.main = data
+    td.fields = fields
+end
+
+function doc!(f::DataType, m::Method, data, source)
+    td = get!(meta(), f, TypeDoc())
+    isa(td, TypeDoc) || error("Can't document a method when the type already has metadata")
+    !haskey(td.meta, m) && push!(td.order, m)
+    td.meta[m] = data
+end
+
+function doc(f::DataType)
+    docs = []
+    for mod in modules
+        if haskey(meta(mod), f)
+            fd = meta(mod)[f]
+            if isa(fd, TypeDoc)
+                length(docs) == 0 && fd.main != nothing && push!(docs, fd.main)
+                for m in fd.order
+                    push!(docs, fd.meta[m])
+                end
+            elseif length(docs) == 0
+                return fd
+            end
+        end
+    end
+    return catdoc(docs...)
+end
+
+isfield(x) = isexpr(x, :.) &&
+  (isexpr(x.args[1], Symbol) || isfield(x.args[1])) &&
+  isexpr(x.args[2], QuoteNode, :quote)
+
+function fielddoc(T, k)
+  for mod in modules
+    if haskey(meta(mod), T) && isa(meta(mod)[T], TypeDoc) && haskey(meta(mod)[T].fields, k)
+      return meta(mod)[T].fields[k]
+    end
+  end
+  Text(sprint(io -> (print(io, "$T has fields: ");
+                     print_joined(io, fieldnames(T), ", ", " and "))))
+end
+
 # Generic Callables
 
 doc(f, ::Method) = doc(f)
 
-# Modules
+# Modules
 
 function doc(m::Module)
     md = invoke(doc, Tuple{Any}, m)
@@ -138,26 +222,28 @@ const keywords = Dict{Symbol,Any}()
 
 # Usage macros
 
+isexpr(x::Expr) = true
+isexpr(x) = false
 isexpr(x::Expr, ts...) = x.head in ts
-isexpr{T}(x::T, ts...) = T in ts
+isexpr(x, ts...) = any(T->isa(T, Type) && isa(x, T), ts)
 
 function unblock(ex)
     isexpr(ex, :block) || return ex
     exs = filter(ex->!isexpr(ex, :line), ex.args)
     length(exs) == 1 || return ex
-    return exs[1]
+    # Recursive unblock'ing for macro expansion
+    return unblock(exs[1])
 end
 
 uncurly(ex) = isexpr(ex, :curly) ? ex.args[1] : ex
 
-namify(ex::Expr) = isexpr(ex, :.)? ex : namify(ex.args[1])
+namify(ex::Expr) = isexpr(ex, :.) ? ex : namify(ex.args[1])
+namify(ex::QuoteNode) = ex.value
 namify(sy::Symbol) = sy
 
 function mdify(ex)
-    if isa(ex, AbstractString)
-        :(@doc_str $ex)
-    elseif isexpr(ex, :macrocall) && namify(ex) == symbol("@mstr")
-        :(@doc_str $(Expr(:triple_quoted_string, ex.args[2])))
+    if isexpr(ex, AbstractString, :string)
+        :(Markdown.parse($(esc(ex))))
     else
         esc(ex)
     end
@@ -181,6 +267,15 @@ function funcdoc(meta, def)
     end
 end
 
+function typedoc(meta, def, name)
+    quote
+        @init
+        $(esc(def))
+        doc!($(esc(name)), $(mdify(meta)), $(field_meta(unblock(def))))
+        nothing
+    end
+end
+
 function objdoc(meta, def)
     quote
         @init
@@ -190,15 +285,32 @@ function objdoc(meta, def)
     end
 end
 
-fexpr(ex) = isexpr(ex, :function) || (isexpr(ex, :(=)) && isexpr(ex.args[1], :call))
+fexpr(ex) = isexpr(ex, :function, :(=)) && isexpr(ex.args[1], :call)
 
 function docm(meta, def)
+    # Quote, Unblock and Macroexpand
+    # * Always do macro expansion unless it's a quote (for consistency)
+    # * Unblock before checking for Expr(:quote) to support `->` syntax
+    # * Unblock after macro expansion to recognize structures of
+    #   the generated AST
     def′ = unblock(def)
+    if !isexpr(def′, :quote)
+        def = macroexpand(def)
+        def′ = unblock(def)
+    elseif length(def′.args) == 1 && isexpr(def′.args[1], :macrocall)
+        # Special case for documenting macros after definition with
+        # `@doc "<doc string>" :@macro` or
+        # `@doc "<doc string>" :(str_macro"")` syntax.
+        #
+        # Allow more general macrocall for now unless it causes confusion.
+        return objdoc(meta, namify(def′.args[1]))
+    end
     isexpr(def′, :macro) && return namedoc(meta, def, symbol("@", namify(def′)))
-    isexpr(def′, :type) && return namedoc(meta, def, namify(def′.args[2]))
+    isexpr(def′, :type) && return typedoc(meta, def, namify(def′.args[2]))
+    isexpr(def′, :bitstype) && return namedoc(meta, def, def′.args[2])
     isexpr(def′, :abstract) && return namedoc(meta, def, namify(def′))
+    isexpr(def′, :module) && return namedoc(meta, def, def′.args[2])
     fexpr(def′) && return funcdoc(meta, def)
-    isexpr(def′, :macrocall) && (def = namify(def′))
     return objdoc(meta, def)
 end
 
@@ -212,7 +324,7 @@ end
 
 # Not actually used; bootstrap version in bootstrap.jl
 
-macro doc (args...)
+macro doc(args...)
     docm(args...)
 end
 
@@ -223,53 +335,79 @@ Base.DocBootstrap.setexpand!(docm)
 # Names are resolved relative to the DocBootstrap module, so
 # inject the ones we need there.
 
-eval(Base.DocBootstrap, :(import ..Docs: @init, doc!, doc, newmethod))
+eval(Base.DocBootstrap,
+     :(import ..Docs: @init, doc!, doc, newmethod, def_dict, @doc_str))
 
 # Metametadata
 
-@doc """
-  The Docs module provides the `@doc` macro which can be used
-  to set and retreive documentation metadata for Julia objects.
-  Please see docs for the `@doc` macro for more info.
-  """ Docs
+"""
+The Docs module provides the `@doc` macro which can be used
+to set and retreive documentation metadata for Julia objects.
+Please see docs for the `@doc` macro for more info.
+"""
+Docs
 
-@doc """
-  # Documentation
-  The `@doc` macro can be used to both set and retrieve documentation /
-  metadata. By default, documentation is written as Markdown, but any
-  object can be placed before the arrow. For example:
+"""
+# Documentation
 
-      @doc \"""
-        # The Foo Function
-        `foo(x)`: Foo the living hell out of `x`.
-      \""" ->
-      function foo() ...
+Functions, methods and types can be documented by placing a string before the
+definition:
 
-  The `->` is not required if the object is on the same line, e.g.
+    \"""
+    # The Foo Function
+    `foo(x)`: Foo the living hell out of `x`.
+    \"""
+    foo(x) = ...
 
-      @doc "foo" foo
+The `@doc` macro can be used directly to both set and retrieve documentation /
+metadata. By default, documentation is written as Markdown, but any object can
+be placed before the arrow. For example:
 
-  # Retrieving Documentation
-  You can retrieve docs for functions, macros and other objects as
-  follows:
+    @doc "blah" ->
+    function foo() ...
 
-      @doc foo
-      @doc @time
-      @doc md""
+The `->` is not required if the object is on the same line, e.g.
 
-  # Functions & Methods
-  Placing documentation before a method definition (e.g. `function foo()
-  ...` or `foo() = ...`) will cause that specific method to be
-  documented, as opposed to the whole function. Method docs are
-  concatenated together in the order they were defined to provide docs
-  for the function.
-  """ @doc
+    @doc "foo" foo
 
-@doc "`doc(obj)`: Get the doc metadata for `obj`." doc
+# Documenting objects after they are defined
+You can document an object after its definition by
 
-@doc """
-  `catdoc(xs...)`: Combine the documentation metadata `xs` into a single meta object.
-  """ catdoc
+    @doc "foo" function_to_doc
+    @doc "bar" TypeToDoc
+
+For functions, this currently only support documenting the whole function
+Instead of a specific method. See Functions & Methods section below
+
+For macros, the syntax is `@doc "macro doc" :(@Module.macro)` or
+`@doc "macro doc" :(string_macro"")` for string macros. Without the quote `:()`
+the expansion of the macro will be documented.
+
+# Retrieving Documentation
+You can retrieve docs for functions, macros and other objects as
+follows:
+
+    @doc foo
+    @doc @time
+    @doc md""
+
+# Functions & Methods
+Placing documentation before a method definition (e.g. `function foo()
+...` or `foo() = ...`) will cause that specific method to be
+documented, as opposed to the whole function. Method docs are
+concatenated together in the order they were defined to provide docs
+for the function.
+"""
+:@Base.DocBootstrap.doc
+
+"`doc(obj)`: Get the doc metadata for `obj`."
+doc
+
+"""
+`catdoc(xs...)`: Combine the documentation metadata `xs` into a single meta
+object.
+"""
+catdoc
 
 # Text / HTML objects
 
@@ -279,7 +417,7 @@ export HTML, @html_str
 
 export HTML, Text
 
-@doc """
+"""
 `HTML(s)`: Create an object that renders `s` as html.
 
     HTML("<div>foo</div>")
@@ -289,7 +427,7 @@ You can also use a stream for large amounts of data:
     HTML() do io
       println(io, "<div>foo</div>")
     end
-""" ->
+"""
 type HTML{T}
     content::T
 end
@@ -305,7 +443,7 @@ end
 writemime(io::IO, ::MIME"text/html", h::HTML) = print(io, h.content)
 writemime(io::IO, ::MIME"text/html", h::HTML{Function}) = h.content(io)
 
-@doc "Create an `HTML` object from a literal string." ->
+"Create an `HTML` object from a literal string."
 macro html_str(s)
     :(HTML($s))
 end
@@ -320,17 +458,17 @@ end
 
 export Text, @text_str
 
-# @doc """
-# `Text(s)`: Create an object that renders `s` as plain text.
+"""
+`Text(s)`: Create an object that renders `s` as plain text.
 
-#     Text("foo")
+    Text("foo")
 
-# You can also use a stream for large amounts of data:
+You can also use a stream for large amounts of data:
 
-#     Text() do io
-#       println(io, "foo")
-#     end
-# """ ->
+    Text() do io
+      println(io, "foo")
+    end
+"""
 type Text{T}
     content::T
 end
@@ -340,7 +478,7 @@ print(io::IO, t::Text{Function}) = t.content(io)
 writemime(io::IO, ::MIME"text/plain", t::Text) = print(io, t)
 
 @doc "Create a `Text` object from a literal string." ->
-macro text_str (s)
+macro text_str(s)
     :(Text($s))
 end
 
@@ -377,7 +515,7 @@ end
 
 repl_corrections(s) = repl_corrections(STDOUT, s)
 
-macro repl (ex)
+macro repl(ex)
     quote
         # Fuzzy Searching
         $(isexpr(ex, Symbol)) && repl_search($(string(ex)))
@@ -386,9 +524,13 @@ macro repl (ex)
                   haskey(keywords, $(Expr(:quote, ex))))
             repl_corrections($(string(ex)))
         else
-            # Backwards-compatible with the previous help system, for now
-            let doc = @doc $(esc(ex))
-                doc ≠ nothing ? doc : Base.Help.@help_ $(esc(ex))
+            if $(isfield(ex) ? :(isa($(esc(ex.args[1])), DataType)) : false)
+                $(isfield(ex) ? :(fielddoc($(esc(ex.args[1])), $(ex.args[2]))) : nothing)
+            else
+                # Backwards-compatible with the previous help system, for now
+                let doc = @doc $(esc(ex))
+                    doc ≠ nothing ? doc : Base.Help.@help_ $(esc(ex))
+                end
             end
         end
     end

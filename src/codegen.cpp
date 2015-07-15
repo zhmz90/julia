@@ -3,7 +3,7 @@
 #include "llvm-version.h"
 #include "platform.h"
 #include "options.h"
-#if defined(_OS_WINDOWS_) && !defined(LLVM36)
+#if defined(_OS_WINDOWS_)
 // trick pre-llvm36 into skipping the generation of _chkstk calls
 //   since it has some codegen issues associated with them:
 //   (a) assumed to be within 32-bit offset
@@ -101,8 +101,13 @@
 #include <cstdio>
 #include <cassert>
 using namespace llvm;
+
+// LLVM version compatibility macros
 #if LLVM37
 using namespace llvm::legacy;
+#define LLVM37_param(x) (x),
+#else
+#define LLVM37_param(x)
 #endif
 
 extern "C" {
@@ -154,13 +159,14 @@ DLLEXPORT LLVMContext &jl_LLVMContext = getGlobalContext();
 static IRBuilder<> builder(getGlobalContext());
 static bool nested_compile=false;
 DLLEXPORT ExecutionEngine *jl_ExecutionEngine;
-static TargetMachine *jl_TargetMachine;
+DLLEXPORT TargetMachine *jl_TargetMachine;
 #ifdef USE_MCJIT
 static Module *shadow_module;
-static RTDyldMemoryManager *jl_mcjmm;
+DLLEXPORT RTDyldMemoryManager *jl_mcjmm;
 #define jl_Module (builder.GetInsertBlock()->getParent()->getParent())
 #else
 static Module *jl_Module;
+#define shadow_module jl_Module
 #endif
 static MDBuilder *mbuilder;
 static std::map<int, std::string> argNumberStrings;
@@ -396,131 +402,20 @@ struct jl_varinfo_t {
 };
 
 // --- helpers for reloading IR image
-static void jl_gen_llvm_gv_array(llvm::Module *mod, SmallVector<GlobalVariable*, 8> &globalvars);
-static void jl_sysimg_to_llvm(llvm::Module *mod, SmallVector<GlobalVariable*, 8> &globalvars,
-                              const char *sysimg_data, size_t sysimg_len);
+static void jl_dump_shadow(char *fname, int jit_model, const char *sysimg_data, size_t sysimg_len, bool dump_as_bc);
 
 extern "C"
 void jl_dump_bitcode(char *fname)
 {
-#ifdef LLVM36
-    std::error_code err;
-    StringRef fname_ref = StringRef(fname);
-    raw_fd_ostream OS(fname_ref, err, sys::fs::F_None);
-#elif LLVM35
-    std::string err;
-    raw_fd_ostream OS(fname, err, sys::fs::F_None);
-#else
-    std::string err;
-    raw_fd_ostream OS(fname, err);
-#endif
-    SmallVector<GlobalVariable*, 8> globalvars;
-#ifdef USE_MCJIT
-    jl_gen_llvm_gv_array(shadow_module, globalvars);
-    WriteBitcodeToFile(shadow_module, OS);
-#else
-    jl_gen_llvm_gv_array(jl_Module, globalvars);
-    WriteBitcodeToFile(jl_Module, OS);
-#endif
-    for (SmallVectorImpl<GlobalVariable>::iterator *I = globalvars.begin(), *E = globalvars.end(); I != E; ++I) {
-        (*I)->eraseFromParent();
-    }
+    jl_dump_shadow(fname, 0, NULL, 0, true);
 }
 
 extern "C"
 void jl_dump_objfile(char *fname, int jit_model, const char *sysimg_data, size_t sysimg_len)
 {
-#ifdef LLVM36
-    std::error_code err;
-    StringRef fname_ref = StringRef(fname);
-    raw_fd_ostream OS(fname_ref, err, sys::fs::F_None);
-#elif  LLVM35
-    std::string err;
-    raw_fd_ostream OS(fname, err, sys::fs::F_None);
-#else
-    std::string err;
-    raw_fd_ostream OS(fname, err);
-#endif
-
-    // We don't want to use MCJIT's target machine because
-    // it uses the large code model and we may potentially
-    // want less optimizations there.
-    Triple TheTriple = Triple(jl_TargetMachine->getTargetTriple());
-#if defined(_OS_WINDOWS_) && defined(FORCE_ELF)
-#ifdef LLVM35
-    TheTriple.setObjectFormat(Triple::COFF);
-#else
-    TheTriple.setEnvironment(Triple::UnknownEnvironment);
-#endif
-#elif defined(_OS_DARWIN_) && defined(FORCE_ELF)
-#ifdef LLVM35
-    TheTriple.setObjectFormat(Triple::MachO);
-#else
-    TheTriple.setEnvironment(Triple::MachO);
-#endif
-#endif
-#ifdef LLVM35
-    std::unique_ptr<TargetMachine>
-#else
-    OwningPtr<TargetMachine>
-#endif
-    TM(jl_TargetMachine->getTarget().createTargetMachine(
-        TheTriple.getTriple(),
-        jl_TargetMachine->getTargetCPU(),
-        jl_TargetMachine->getTargetFeatureString(),
-        jl_TargetMachine->Options,
-#if defined(_OS_LINUX_) || defined(_OS_FREEBSD_)
-        Reloc::PIC_,
-#else
-        jit_model ? Reloc::PIC_ : Reloc::Default,
-#endif
-        jit_model ? CodeModel::JITDefault : CodeModel::Default,
-        CodeGenOpt::Aggressive // -O3
-        ));
-
-    PassManager PM;
-#ifndef LLVM37
-    PM.add(new TargetLibraryInfo(Triple(jl_TargetMachine->getTargetTriple())));
-#else
-    PM.add(new TargetLibraryInfoWrapperPass(Triple(jl_TargetMachine->getTargetTriple())));
-#endif
-#ifdef LLVM37
-// No DataLayout pass needed anymore.
-#elif LLVM36
-    PM.add(new DataLayoutPass());
-#elif LLVM35
-    PM.add(new DataLayoutPass(*jl_ExecutionEngine->getDataLayout()));
-#else
-    PM.add(new DataLayout(*jl_ExecutionEngine->getDataLayout()));
-#endif
-
-
-#ifdef LLVM37 // 3.7 simplified formatted output; just use the raw stream alone
-    raw_fd_ostream& FOS(OS);
-#else
-    formatted_raw_ostream FOS(OS);
-#endif
-
-    if (TM->addPassesToEmitFile(PM, FOS, TargetMachine::CGFT_ObjectFile, false)) {
-        jl_error("Could not generate obj file for this target");
-    }
-
-    SmallVector<GlobalVariable*, 8> globalvars;
-#ifdef USE_MCJIT
-    if (sysimg_data)
-        jl_sysimg_to_llvm(shadow_module, globalvars, sysimg_data, sysimg_len);
-    jl_gen_llvm_gv_array(shadow_module, globalvars);
-    PM.run(*shadow_module);
-#else
-    if (sysimg_data)
-        jl_sysimg_to_llvm(jl_Module, globalvars, sysimg_data, sysimg_len);
-    jl_gen_llvm_gv_array(jl_Module, globalvars);
-    PM.run(*jl_Module);
-#endif
-    for (SmallVectorImpl<GlobalVariable>::iterator *I = globalvars.begin(), *E = globalvars.end(); I != E; ++I) {
-        (*I)->eraseFromParent();
-    }
+    jl_dump_shadow(fname, jit_model, sysimg_data, sysimg_len, false);
 }
+
 
 // aggregate of array metadata
 typedef struct {
@@ -883,8 +778,10 @@ extern "C" void jl_generate_fptr(jl_function_t *f)
 #else
             (void)jl_ExecutionEngine->getPointerToFunction((Function*)li->specFunctionObject);
 #endif
+#ifndef KEEP_BODIES
             if (!imaging_mode)
                 ((Function*)li->specFunctionObject)->deleteBody();
+#endif
         }
         JL_SIGATOMIC_END();
     }
@@ -1284,9 +1181,13 @@ void write_log_data(logdata_t logData, const char *extension)
     }
 }
 
+extern "C" int jl_getpid();
 extern "C" void jl_write_coverage_data(void)
 {
-    write_log_data(coverageData, ".cov");
+    std::ostringstream stm;
+    stm << jl_getpid();
+    std::string outf = "." + stm.str() + ".cov";
+    write_log_data(coverageData, outf.c_str());
 }
 
 // Memory allocation log (malloc_log)
@@ -1566,7 +1467,7 @@ static void mark_volatile_vars(jl_array_t *stmts, std::map<jl_sym_t*,jl_varinfo_
 
 static bool expr_is_symbol(jl_value_t *e)
 {
-    return (jl_is_symbol(e) || jl_is_symbolnode(e) || jl_is_topnode(e));
+    return (jl_is_symbol(e) || jl_is_symbolnode(e) || jl_is_topnode(e) || jl_is_globalref(e));
 }
 
 // a very simple, conservative escape analysis that is sufficient for
@@ -1740,7 +1641,8 @@ static bool is_stable_expr(jl_value_t *ex, jl_codectx_t *ctx)
 static bool might_need_root(jl_value_t *ex)
 {
     return (!jl_is_symbol(ex) && !jl_is_symbolnode(ex) && !jl_is_gensym(ex) &&
-            !jl_is_bool(ex) && !jl_is_quotenode(ex) && !jl_is_byte_string(ex));
+            !jl_is_bool(ex) && !jl_is_quotenode(ex) && !jl_is_byte_string(ex) &&
+            !jl_is_globalref(ex));
 }
 
 static Value *emit_boxed_rooted(jl_value_t *e, jl_codectx_t *ctx)
@@ -1885,8 +1787,14 @@ static Value *emit_getfield(jl_value_t *expr, jl_sym_t *name, jl_codectx_t *ctx)
         expr = static_val;
 
     if (jl_is_module(expr)) {
-        Value *bp =
-            global_binding_pointer((jl_module_t*)expr, name, NULL, false, ctx);
+        jl_binding_t *bnd = NULL;
+        Value *bp = global_binding_pointer((jl_module_t*)expr, name, &bnd, false, ctx);
+        // TODO: refactor. this partially duplicates code in emit_var
+        if (bnd && bnd->value != NULL) {
+            if (bnd->constp && jl_isbits(jl_typeof(bnd->value)))
+                return emit_unboxed(bnd->value, ctx);
+            return tpropagate(bp, builder.CreateLoad(bp));
+        }
         // todo: use type info to avoid undef check
         return emit_checked_var(bp, name, ctx);
     }
@@ -2008,8 +1916,13 @@ static Value *emit_f_is(jl_value_t *rt1, jl_value_t *rt2,
                     for(unsigned i=0; i < l; i++) {
                         jl_value_t *fldty = jl_svecref(types, i);
                         Value *subAns;
+#ifdef LLVM37
+                        Value *fld1 = builder.CreateConstGEP2_32(elty, varg1, 0, i);
+                        Value *fld2 = builder.CreateConstGEP2_32(elty, varg2, 0, i);
+#else
                         Value *fld1 = builder.CreateConstGEP2_32(varg1, 0, i);
                         Value *fld2 = builder.CreateConstGEP2_32(varg2, 0, i);
+#endif
                         if (type_is_ghost(fld1->getType()))
                             continue;
                         if (!fld1->getType()->getContainedType(0)->isAggregateType()) {
@@ -4362,8 +4275,7 @@ static Function *emit_function(jl_lambda_info_t *lam)
                 vi.hasGCRoot = false;
                 continue;
             }
-            if (vi.isSA && !vi.isVolatile &&
-                    !vi.isCaptured && !vi.usedUndef) {
+            if (vi.isSA && !vi.isVolatile && !vi.isCaptured && !vi.usedUndef) {
                 vi.hasGCRoot = false; // so far...
             }
             else {
@@ -4784,11 +4696,7 @@ extern "C" void jl_fptr_to_llvm(void *fptr, jl_lambda_info_t *lam, int specsig)
             }
             Type *rt = (jlrettype == (jl_value_t*)jl_void_type ? T_void : julia_type_to_llvm(jlrettype));
             Function *f = Function::Create(FunctionType::get(rt, fsig, false), Function::ExternalLinkage, funcName,
-#ifdef USE_MCJIT
                                            shadow_module);
-#else
-                                           jl_Module);
-#endif
 
         if (lam->specFunctionObject == NULL) {
             lam->specFunctionObject = (void*)f;
@@ -4797,11 +4705,7 @@ extern "C" void jl_fptr_to_llvm(void *fptr, jl_lambda_info_t *lam, int specsig)
             add_named_global(f, (void*)fptr);
         }
         else {
-#ifdef USE_MCJIT
             Function *f = jlcall_func_to_llvm(funcName, fptr, shadow_module);
-#else
-            Function *f = jlcall_func_to_llvm(funcName, fptr, jl_Module);
-#endif
             if (lam->functionObject == NULL) {
                 lam->functionObject = (void*)f;
                 lam->functionID = jl_assign_functionID(f);
@@ -5397,15 +5301,6 @@ static void init_julia_llvm_env(Module *m)
                          "jl_gc_diff_total_bytes", m);
     add_named_global(diff_gc_total_bytes_func, (void*)*jl_gc_diff_total_bytes);
 
-    std::vector<Type *> execpoint_args(0);
-    execpoint_args.push_back(T_pint8);
-    execpoint_args.push_back(T_int32);
-    show_execution_point_func =
-        Function::Create(FunctionType::get(T_void, execpoint_args, false),
-                         Function::ExternalLinkage,
-                         "show_execution_point", m);
-    add_named_global(show_execution_point_func, (void*)*show_execution_point);
-
     // set up optimization passes
     FPM = new FunctionPassManager(m);
 
@@ -5587,6 +5482,7 @@ extern "C" void jl_init_codegen(void)
     jl_mcjmm = new SectionMemoryManager();
 #endif
     const char *mattr[] = {
+#if defined(_CPU_X86_64_) || defined(_CPU_X86_)
 #ifndef USE_MCJIT
         // Temporarily disable Haswell BMI2 features due to LLVM bug.
         "-bmi2", "-avx2",
@@ -5594,6 +5490,8 @@ extern "C" void jl_init_codegen(void)
 #ifdef V128_BUG
         "-avx",
 #endif
+#endif
+        "", // padding to make sure this isn't an empty array (ref #11817)
     };
     SmallVector<std::string, 4> MAttrs(mattr, mattr+sizeof(mattr)/sizeof(mattr[0]));
 #ifdef LLVM36
@@ -5623,15 +5521,20 @@ extern "C" void jl_init_codegen(void)
     TheTriple.setEnvironment(Triple::ELF);
 #endif
 #endif
+    std::string TheCPU = strcmp(jl_options.cpu_target,"native") ? jl_options.cpu_target : sys::getHostCPUName();
+    if (TheCPU.empty() || TheCPU == "generic") {
+        jl_printf(JL_STDERR, "warning: unable to determine host cpu name.\n");
+#ifdef _CPU_ARM_
+        MAttrs.append(1, "+vfp2"); // the processors that don't have VFP are old and (hopefully) rare. this affects the platform calling convention.
+#endif
+    }
     TargetMachine *targetMachine = eb.selectTarget(
             TheTriple,
             "",
-#if LLVM35
-            strcmp(jl_options.cpu_target,"native") ? StringRef(jl_options.cpu_target) : sys::getHostCPUName(),
-#else
-            strcmp(jl_options.cpu_target,"native") ? jl_options.cpu_target : "",
-#endif
+            TheCPU,
             MAttrs);
+    assert(targetMachine && "Failed to select target machine -"
+                            " Is the LLVM backend for this CPU enabled?");
     jl_TargetMachine = targetMachine->getTarget().createTargetMachine(
             TheTriple.getTriple(),
             targetMachine->getTargetCPU(),

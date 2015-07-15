@@ -736,6 +736,17 @@
           ;; neither
           (method-def-expr- name sparams argl body isstaged))))
 
+;; remove nested blocks
+(define (flatten-blocks e)
+  (if (atom? e)
+      e
+      (apply append!
+             (map (lambda (x)
+                    (cond ((atom? x) (list x))
+                          ((eq? (car x) 'block) (cdr (flatten-blocks x)))
+                          (else (list x))))
+                  e))))
+
 (define (struct-def-expr name params super fields mut)
   (receive
    (params bounds) (sparam-name-bounds params '() '())
@@ -748,12 +759,13 @@
       (map (lambda (x) (gensy)) field-names)
       field-names))
 
-(define (default-inner-ctors name field-names field-types gen-specific?)
+(define (default-inner-ctors name field-names field-types gen-specific? locs)
   (let* ((field-names (safe-field-names field-names field-types))
          (any-ctor
           ;; definition with Any for all arguments
           `(function (call ,name ,@field-names)
                      (block
+		      ,@locs
                       (call new ,@field-names)))))
     (if (and gen-specific? (any (lambda (t) (not (eq? t 'Any))) field-types))
         (list
@@ -761,17 +773,19 @@
          `(function (call ,name
                           ,@(map make-decl field-names field-types))
                     (block
+		     ,@locs
                      (call new ,@field-names)))
          any-ctor)
         (list any-ctor))))
 
-(define (default-outer-ctor name field-names field-types params bounds)
+(define (default-outer-ctor name field-names field-types params bounds locs)
   (let ((field-names (safe-field-names field-names field-types)))
     `(function (call (curly ,name
                             ,@(map (lambda (p b) `(<: ,p ,b))
                                    params bounds))
                      ,@(map make-decl field-names field-types))
                (block
+		,@locs
                 (call (curly ,name ,@params) ,@field-names)))))
 
 (define (new-call Tname type-params params args field-names field-types mutabl)
@@ -891,27 +905,18 @@
     (ctors-min-initialized (car expr))
     (ctors-min-initialized (cdr expr)))))
 
-;; remove line numbers and nested blocks
-(define (flatten-blocks e)
-  (if (atom? e)
-      e
-      (apply append!
-             (map (lambda (x)
-                    (cond ((atom? x) (list x))
-                          ((eq? (car x) 'line) '())
-                          ((eq? (car x) 'block) (cdr (flatten-blocks x)))
-                          (else (list x))))
-                  e))))
-
-(define (struct-def-expr- name params bounds super fields mut)
+(define (struct-def-expr- name params bounds super fields0 mut)
   (receive
    (fields defs) (separate (lambda (x) (or (symbol? x) (decl? x)))
-                           fields)
+                           fields0)
    (let* ((defs        (filter (lambda (x) (not (effect-free? x))) defs))
+	  (locs        (if (and (pair? fields0) (pair? (car fields0)) (eq? (caar fields0) 'line))
+			   (list (car fields0))
+			   '()))
           (field-names (map decl-var fields))
           (field-types (map decl-type fields))
           (defs2 (if (null? defs)
-                     (default-inner-ctors name field-names field-types (null? params))
+                     (default-inner-ctors name field-names field-types (null? params) locs)
                      defs))
           (min-initialized (min (ctors-min-initialized defs) (length fields))))
      (for-each (lambda (v)
@@ -964,7 +969,7 @@
                     (block
                      (global ,name)
                      ,(default-outer-ctor name field-names field-types
-                        params bounds))))
+                        params bounds locs))))
                  '())
            (null))))))
 
@@ -1169,6 +1174,15 @@
        (let ((mut (cadr e))
              (sig (caddr e))
              (fields (cdr (cadddr e))))
+	 (let loop ((f fields))
+	   (if (null? f)
+	       '()
+	       (let ((x (car f)))
+		 (cond ((or (symbol? x) (decl? x) (and (pair? x) (eq? (car x) 'line)))
+			(loop (cdr f)))
+		       ((and (assignment? x) (or (symbol? (cadr x)) (decl? (cadr x))))
+			(error (string "\"" (deparse x) "\" inside type definition is reserved")))
+		       (else '())))))
          (expand-binding-forms
           (receive (name params super) (analyze-type-sig sig)
                    (struct-def-expr name params super fields mut)))))
@@ -1284,6 +1298,8 @@
                      ,@(symbols->typevars params bounds #t))))
            (expand-binding-forms
             `(const (= ,(cadr e) ,(caddr e))))))
+
+      ((module) e)
 
       (else
        (map expand-binding-forms e))))))
@@ -1617,6 +1633,7 @@
    'inert identity
    'top   identity
    'line  identity
+   'module identity
 
    'lambda
    (lambda (e) (list* 'lambda (map expand-forms (cadr e)) (map expand-forms (cddr e))))
@@ -2551,6 +2568,9 @@
                      (append fu (cdr ex))))
              (map-to-lff e dest tail)))
 
+        ((module)
+	 (cons e '()))
+
         ((symbolicgoto symboliclabel)
          (cons (if tail '(return (null)) '(null))
                (map-to-lff e #f #f)))
@@ -2587,7 +2607,7 @@ So far only the second case can actually occur.
   (if (or (not (pair? e)) (quoted? e))
       '()
       (case (car e)
-        ((lambda scope-block)  '())
+        ((lambda scope-block module)  '())
         ((method)
          (let ((v (decl-var (method-expr-name e))))
            (if (or (not (symbol? v)) (memq v env))
@@ -2605,7 +2625,7 @@ So far only the second case can actually occur.
 (define (find-decls kind e)
   (if (or (not (pair? e)) (quoted? e))
       '()
-      (cond ((or (eq? (car e) 'lambda) (eq? (car e) 'scope-block))
+      (cond ((memq (car e) '(lambda scope-block module))
              '())
             ((eq? (car e) kind)
              (list (decl-var (cadr e))))
@@ -2681,6 +2701,10 @@ So far only the second case can actually occur.
                              ,.(map (lambda (v) `(local ,v))
                                     vars)
                              ,(remove-local-decls body))))
+
+	    ((eq? (car e) 'module)
+	     (error "module expression not at top level"))
+
             (else
              ;; form (local! x) adds a local to a normal (non-scope) block
              (let ((newenv (append (declared-local!-vars e) env)))
@@ -3009,6 +3033,10 @@ So far only the second case can actually occur.
               `(call (lambda ,vs ,(caddr (cadr e)) ,(cadddr (cadr e)))
                      ,@vs)
               env captvars sp))))
+	((with-static-parameters)
+	 ;; (with-static-parameters func_expr sp_1 sp_2 ...)
+	 (analyze-vars (cadr e) env captvars
+		       (delete-duplicates (append sp (cddr e)))))
         ((method)
          (let ((vi (var-info-for (method-expr-name e) env)))
            (if vi
@@ -3026,6 +3054,7 @@ So far only the second case can actually occur.
 				     (delete-duplicates
 				      (append sp (method-expr-static-parameters e))))
 		      ,(caddddr e))))
+	((module) e)
         (else (cons (car e)
                     (map (lambda (x) (analyze-vars x env captvars sp))
                          (cdr e)))))))
@@ -3200,7 +3229,12 @@ So far only the second case can actually occur.
                    (mark-label endl))
                ))
 
-            ((global) #f)  ; remove global declarations
+            ((global) ; remove global declarations
+             (let ((vname (cadr e)))
+               (if (var-info-for vname vi)
+                   ; issue #7264
+                   (error (string "`global " vname "`: " vname " is local variable in the enclosing scope"))
+                   #f)))
             ((implicit-global) #f)
             ((local!) #f)
             ((jlgensym) #f)
@@ -3310,14 +3344,7 @@ So far only the second case can actually occur.
          e)
         ((eq? (car e) 'macrocall)
          ;; expand macro
-         (let ((form
-		(if (and (length> e 2) (pair? (caddr e)) (eq? (caaddr e) 'triple_quoted_string))
-		    ;; for a custom triple-quoted string literal, first invoke mstr
-		    ;; to handle unindenting
-		    (apply invoke-julia-macro (cadr e)
-			   (julia-expand-macros `(macrocall @mstr ,(cadr (caddr e))))
-			   (cdddr e))
-		    (apply invoke-julia-macro (cadr e) (cddr e)))))
+         (let ((form (apply invoke-julia-macro (cadr e) (cddr e))))
            (if (not form)
                (error (string "macro \"" (cadr e) "\" not defined")))
            (if (and (pair? form) (eq? (car form) 'error))

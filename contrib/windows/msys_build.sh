@@ -40,11 +40,13 @@ echo "" > get-deps.log
 if [ "$ARCH" = x86_64 ]; then
   bits=64
   archsuffix=64
+  exc=seh
   echo "override MARCH = x86-64" >> Make.user
   echo 'USE_BLAS64 = 1' >> Make.user
 else
   bits=32
   archsuffix=86
+  exc=sjlj
   echo "override MARCH = i686" >> Make.user
   echo "override JULIA_CPU_TARGET = pentium4" >> Make.user
 fi
@@ -104,10 +106,10 @@ rm -f usr/bin/libjulia-debug.dll
 mingw=http://sourceforge.net/projects/mingw
 if [ -z "$USEMSVC" ]; then
   if [ -z "`which ${CROSS_COMPILE}gcc 2>/dev/null`" ]; then
-    f=mingw-w$bits-bin-$ARCH-20140102.7z
+    f=$ARCH-4.9.2-release-win32-$exc-rt_v4-rev3.7z
     if ! [ -e $f ]; then
       echo "Downloading $f"
-      $curlflags -O $mingw-w64-dgn/files/mingw-w64/$f
+      $curlflags -O $mingw-w64/files/Toolchains%20targetting%20Win$bits/Personal%20Builds/mingw-builds/4.9.2/threads-win32/$exc/$f
     fi
     echo "Extracting $f"
     $SEVENZIP x -y $f >> get-deps.log
@@ -178,6 +180,7 @@ echo 'LIBBLAS = -L$(JULIAHOME)/usr/bin -lopenblas' >> Make.user
 echo 'LIBBLASNAME = libopenblas' >> Make.user
 echo 'override LIBLAPACK = $(LIBBLAS)' >> Make.user
 echo 'override LIBLAPACKNAME = $(LIBBLASNAME)' >> Make.user
+echo 'JULIA_SYSIMG_BUILD_FLAGS=--output-ji ../usr/lib/julia/sys.ji' >> Make.user
 
 # Remaining dependencies:
 # libuv since its static lib is no longer included in the binaries

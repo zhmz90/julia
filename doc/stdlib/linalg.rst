@@ -63,7 +63,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
       ----------------------- ------------------------- ----------------------------------------
       :func:`Matrix`           ``LU``                   ``F[:L]*F[:U] == A[F[:p], :]``
       :func:`Tridiagonal`      ``LU{T,Tridiagonal{T}}``  N/A
-      :func:`SparseMatrixCSC`  ``UmfpackLU``            ``F[:L]*F[:U] == F[:Rs] .* A[F[:p], F[:q]]``
+      :func:`SparseMatrixCSC`  ``UmfpackLU``            ``F[:L]*F[:U] == (F[:Rs] .* A)[F[:p], F[:q]]``
       ======================= ========================= ========================================
 
    The individual components of the factorization ``F`` can be accessed by indexing:
@@ -87,6 +87,8 @@ Linear algebra functions in Julia are largely implemented by calling functions f
            ``\``            ✓                       ✓             ✓
            ``cond``         ✓                                     ✓
            ``det``          ✓                       ✓             ✓
+           ``logdet``       ✓                       ✓
+           ``logabsdet``    ✓                       ✓
            ``size``         ✓                       ✓
       ================== ====== ======================== =============
 
@@ -563,6 +565,10 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 .. function:: logdet(M)
 
    Log of matrix determinant. Equivalent to ``log(det(M))``, but may provide increased accuracy and/or speed.
+
+.. function:: logabsdet(M)
+
+   Log of absolute value of determinant of real matrix. Equivalent to ``(log(abs(det(M))), sign(det(M)))``, but may provide increased accuracy and/or speed.
 
 .. function:: inv(M)
 

@@ -38,6 +38,7 @@
                 ((lambda)       tab)
                 ((local local!) tab)
                 ((break-block)  (find-possible-globals- (caddr e) tab))
+		((module)       '())
                 (else
                  (for-each (lambda (x) (find-possible-globals- x tab))
                            (cdr e))
@@ -198,6 +199,12 @@
 (define (jl-parser-depwarn w)
   (let ((prev *depwarn*))
     (set! *depwarn* (eq? w #t))
+    prev))
+
+(define *deperror* #f)
+(define (jl-parser-deperror e)
+  (let ((prev *deperror*))
+    (set! *deperror* (eq? e #t))
     prev))
 
 (define (jl-parser-next)

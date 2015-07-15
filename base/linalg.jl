@@ -83,6 +83,7 @@ export
     ldltfact!,
     ldltfact,
     linreg,
+    logabsdet,
     logdet,
     lu,
     lufact,
@@ -223,7 +224,6 @@ include("linalg/symmetric.jl")
 include("linalg/diagonal.jl")
 include("linalg/bidiag.jl")
 include("linalg/uniformscaling.jl")
-include("linalg/rectfullpacked.jl")
 include("linalg/givens.jl")
 include("linalg/special.jl")
 include("linalg/bitarray.jl")

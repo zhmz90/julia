@@ -15,22 +15,23 @@ Upon return, `tests` is a vector of fully-expanded test names, and
 """ ->
 function choosetests(choices = [])
     testnames = [
-        "linalg", "core", "keywordargs", "numbers", "strings",
+        "linalg", "core", "keywordargs", "numbers", "printf",
+        "char", "string", "triplequote", "unicode",
         "dates", "dict", "hashing", "remote", "iobuffer", "staged",
         "arrayops", "tuple", "subarray", "reduce", "reducedim", "random",
         "abstractarray", "intfuncs", "simdloop", "blas", "sparse",
         "bitarray", "copy", "math", "fastmath", "functional",
-        "operators", "path", "ccall", "unicode",
+        "operators", "path", "ccall", "parse",
         "bigint", "sorting", "statistics", "spawn", "backtrace",
-        "priorityqueue", "file", "version", "resolve",
+        "priorityqueue", "file", "mmap", "version", "resolve",
         "pollfd", "mpfr", "broadcast", "complex", "socket",
         "floatapprox", "readdlm", "reflection", "regex", "float16",
         "combinatorics", "sysinfo", "rounding", "ranges", "mod2pi",
         "euler", "show", "lineedit", "replcompletions", "repl",
         "replutil", "sets", "test", "goto", "llvmcall", "grisu",
         "nullable", "meta", "profile", "libgit2", "docs", "markdown",
-        "base64", "parser", "serialize", "functors", "char", "misc",
-        "enums", "cmdlineargs", "i18n"
+        "base64", "serialize", "functors", "misc",
+        "enums", "cmdlineargs", "i18n", "workspace", "libdl", "int"
     ]
 
     if Base.USE_GPL_LIBS
@@ -62,9 +63,9 @@ function choosetests(choices = [])
 
     linalgtests = ["linalg1", "linalg2", "linalg3", "linalg4",
                    "linalg/lapack", "linalg/triangular", "linalg/tridiag",
-                   "linalg/bidiag", "linalg/diagonal",
+                   "linalg/bidiag", "linalg/diagonal", "linalg/dense",
                    "linalg/pinv", "linalg/givens", "linalg/cholesky",
-                   "linalg/lu", "linalg/symmetric"]
+                   "linalg/lu", "linalg/symmetric", "linalg/generic"]
     if Base.USE_GPL_LIBS
         push!(linalgtests, "linalg/arnoldi")
     end

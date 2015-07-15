@@ -13,12 +13,12 @@ export CartesianIndex, CartesianRange
 linearindexing{A<:BitArray}(::Type{A}) = LinearFast()
 
 # CartesianIndex
-abstract CartesianIndex{N}
-
-@generated function Base.call{N}(::Type{CartesianIndex},index::NTuple{N,Integer})
-    indextype = gen_cartesian(N)
-    return Expr(:call,indextype,[:(to_index(index[$i])) for i=1:N]...)
+immutable CartesianIndex{N}
+    I::NTuple{N,Int}
+    CartesianIndex(index::NTuple{N,Integer}) = new(index)
 end
+
+CartesianIndex{N}(index::NTuple{N,Integer}) = CartesianIndex{N}(index)
 @generated function Base.call{N}(::Type{CartesianIndex{N}},index::Integer...)
     length(index) == N && return :(CartesianIndex(index))
     length(index) > N && throw(DimensionMismatch("Cannot create CartesianIndex{$N} from $(length(index)) indexes"))
@@ -27,33 +27,12 @@ end
 end
 Base.call{M,N}(::Type{CartesianIndex{N}},index::NTuple{M,Integer}) = CartesianIndex{N}(index...)
 
-let implemented = IntSet()
-    global gen_cartesian
-    function gen_cartesian(N::Int)
-        # Create the types
-        indextype = symbol("CartesianIndex_$N")
-        if !in(N,implemented)
-            fnames = [symbol("I_$i") for i = 1:N]
-            fields = [Expr(:(::), fnames[i], :Int) for i = 1:N]
-            extype = Expr(:type, false, Expr(:(<:), indextype, Expr(:curly, :CartesianIndex, N)), Expr(:block, fields...))
-            eval(extype)
-            argsleft = [Expr(:(::), fnames[i], :Integer) for i = 1:N]
-            argsright = [Expr(:call,:to_index,fnames[i]) for i=1:N]
-            exconstructor = Expr(:(=),Expr(:call,:(Base.call),:(::Type{CartesianIndex{$N}}),argsleft...),Expr(:call,indextype,argsright...))
-            eval(exconstructor)
-            push!(implemented,N)
-        end
-        return indextype
-    end
-end
-
 # length
 length{N}(::CartesianIndex{N})=N
 length{N}(::Type{CartesianIndex{N}})=N
-length{I<:CartesianIndex}(::Type{I})=length(super(I))
 
 # indexing
-getindex(index::CartesianIndex, i::Integer) = getfield(index, i)::Int
+getindex(index::CartesianIndex, i::Integer) = index.I[i]
 
 # arithmetic, min/max
 for op in (:+, :-, :min, :max)
@@ -86,6 +65,7 @@ end
 CartesianRange{N}(sz::NTuple{N,Int}) = CartesianRange(CartesianIndex(sz))
 
 ndims(R::CartesianRange) = length(R.start)
+ndims{I<:CartesianIndex}(::Type{CartesianRange{I}}) = length(I)
 
 @generated function eachindex{T,N}(::LinearSlow, A::AbstractArray{T,N})
     startargs = fill(1, N)
@@ -297,7 +277,6 @@ _checksize(A::AbstractArray, dim, I::AbstractVector{Bool}) = size(A, dim) == sum
 _checksize(A::AbstractArray, dim, ::Colon) = true
 _checksize(A::AbstractArray, dim, ::Real) = size(A, dim) == 1
 
-@inline unsafe_setindex!{T}(v::Array{T}, x::T, ind::Int) = (@inbounds v[ind] = x; v)
 @inline unsafe_setindex!(v::BitArray, x::Bool, ind::Int) = (Base.unsafe_bitsetindex!(v.chunks, x, ind); v)
 @inline unsafe_setindex!(v::BitArray, x, ind::Real) = (Base.unsafe_bitsetindex!(v.chunks, convert(Bool, x), to_index(ind)); v)
 
@@ -312,7 +291,7 @@ _iterable(v) = repeated(v)
     _unsafe_setindex!(l, A, x, J...)
 end
 @inline function _unsafe_setindex!(l::LinearIndexing, A::AbstractArray, x, J::Union{Real,AbstractVector,Colon}...)
-    _unsafe_batchsetindex!(l, A, _iterable(x), to_index(J)...)
+    _unsafe_batchsetindex!(l, A, _iterable(x), to_indexes(J...)...)
 end
 
 # While setindex! with one array argument doesn't mean anything special, it is

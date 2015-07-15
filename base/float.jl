@@ -6,8 +6,10 @@ const Inf16 = box(Float16,unbox(UInt16,0x7c00))
 const NaN16 = box(Float16,unbox(UInt16,0x7e00))
 const Inf32 = box(Float32,unbox(UInt32,0x7f800000))
 const NaN32 = box(Float32,unbox(UInt32,0x7fc00000))
-const Inf = box(Float64,unbox(UInt64,0x7ff0000000000000))
-const NaN = box(Float64,unbox(UInt64,0x7ff8000000000000))
+const Inf64 = box(Float64,unbox(UInt64,0x7ff0000000000000))
+const NaN64 = box(Float64,unbox(UInt64,0x7ff8000000000000))
+const Inf = Inf64
+const NaN = NaN64
 
 ## conversions to floating-point ##
 convert(::Type{Float16}, x::Integer) = convert(Float16, convert(Float32,x))
@@ -171,8 +173,8 @@ trunc(::Type{Integer}, x::Float64) = trunc(Int,x)
 
 # fallbacks
 floor{T<:Integer}(::Type{T}, x::FloatingPoint) = trunc(T,floor(x))
-ceil {T<:Integer}(::Type{T}, x::FloatingPoint) = trunc(T,ceil(x))
-round {T<:Integer}(::Type{T}, x::FloatingPoint) = trunc(T,round(x))
+ceil{ T<:Integer}(::Type{T}, x::FloatingPoint) = trunc(T,ceil(x))
+round{T<:Integer}(::Type{T}, x::FloatingPoint) = trunc(T,round(x))
 
 trunc(x::Float64) = box(Float64,trunc_llvm(unbox(Float64,x)))
 trunc(x::Float32) = box(Float32,trunc_llvm(unbox(Float32,x)))
@@ -234,15 +236,15 @@ end
 ==(x::Float64, y::Float64) = eq_float(unbox(Float64,x),unbox(Float64,y))
 !=(x::Float32, y::Float32) = ne_float(unbox(Float32,x),unbox(Float32,y))
 !=(x::Float64, y::Float64) = ne_float(unbox(Float64,x),unbox(Float64,y))
-< (x::Float32, y::Float32) = lt_float(unbox(Float32,x),unbox(Float32,y))
-< (x::Float64, y::Float64) = lt_float(unbox(Float64,x),unbox(Float64,y))
+<( x::Float32, y::Float32) = lt_float(unbox(Float32,x),unbox(Float32,y))
+<( x::Float64, y::Float64) = lt_float(unbox(Float64,x),unbox(Float64,y))
 <=(x::Float32, y::Float32) = le_float(unbox(Float32,x),unbox(Float32,y))
 <=(x::Float64, y::Float64) = le_float(unbox(Float64,x),unbox(Float64,y))
 
 isequal(x::Float32, y::Float32) = fpiseq(unbox(Float32,x),unbox(Float32,y))
 isequal(x::Float64, y::Float64) = fpiseq(unbox(Float64,x),unbox(Float64,y))
-isless (x::Float32, y::Float32) = fpislt(unbox(Float32,x),unbox(Float32,y))
-isless (x::Float64, y::Float64) = fpislt(unbox(Float64,x),unbox(Float64,y))
+isless( x::Float32, y::Float32) = fpislt(unbox(Float32,x),unbox(Float32,y))
+isless( x::Float64, y::Float64) = fpislt(unbox(Float64,x),unbox(Float64,y))
 
 function cmp(x::FloatingPoint, y::FloatingPoint)
     (isnan(x) || isnan(y)) && throw(DomainError())
@@ -374,8 +376,8 @@ end
     typemax(::Type{Float16}) = $(Inf16)
     typemin(::Type{Float32}) = $(-Inf32)
     typemax(::Type{Float32}) = $(Inf32)
-    typemin(::Type{Float64}) = $(-Inf)
-    typemax(::Type{Float64}) = $(Inf)
+    typemin(::Type{Float64}) = $(-Inf64)
+    typemax(::Type{Float64}) = $(Inf64)
     typemin{T<:Real}(x::T) = typemin(T)
     typemax{T<:Real}(x::T) = typemax(T)
 

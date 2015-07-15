@@ -177,27 +177,6 @@ function getindex(::Type{Any}, vals::ANY...)
     return a
 end
 
-if _oldstyle_array_vcat_
-# T[a:b] and T[a:s:b] also construct typed ranges
-function getindex{T<:Union{Char,Number}}(::Type{T}, r::Range)
-    depwarn("T[a:b] concatenation is deprecated; use T[a:b;] instead", :getindex)
-    copy!(Array(T,length(r)), r)
-end
-
-function getindex{T<:Union{Char,Number}}(::Type{T}, r1::Range, rs::Range...)
-    depwarn("T[a:b,...] concatenation is deprecated; use T[a:b;...] instead", :getindex)
-    a = Array(T,length(r1)+sum(length,rs))
-    o = 1
-    copy!(a, o, r1)
-    o += length(r1)
-    for r in rs
-        copy!(a, o, r)
-        o += length(r)
-    end
-    return a
-end
-end #_oldstyle_array_vcat_
-
 function fill!(a::Union{Array{UInt8}, Array{Int8}}, x::Integer)
     ccall(:memset, Ptr{Void}, (Ptr{Void}, Cint, Csize_t), a, x, length(a))
     return a
@@ -289,8 +268,11 @@ done(a::Array,i) = (i > length(a))
 
 ## Indexing: getindex ##
 
-getindex(A::Array, i1::Int) = arrayref(A, i1)
-unsafe_getindex(A::Array, i1::Int) = @inbounds return arrayref(A, i1)
+# This is more complicated than it needs to be in order to get Win64 through bootstrap
+getindex(A::Array, i1::Real) = arrayref(A, to_index(i1))
+getindex(A::Array, i1::Real, i2::Real, I::Real...) = arrayref(A, to_index(i1), to_index(i2), to_indexes(I...)...)
+
+unsafe_getindex(A::Array, i1::Real, I::Real...) = @inbounds return arrayref(A, to_index(i1), to_indexes(I...)...)
 
 # Faster contiguous indexing using copy! for UnitRange and Colon
 getindex(A::Array, I::UnitRange{Int}) = (checkbounds(A, I); unsafe_getindex(A, I))
@@ -318,7 +300,10 @@ function getindex{T<:Real}(A::Array, I::Range{T})
 end
 
 ## Indexing: setindex! ##
-setindex!{T}(A::Array{T}, x, i0::Real) = arrayset(A, convert(T,x), to_index(i0))
+setindex!{T}(A::Array{T}, x, i1::Real) = arrayset(A, convert(T,x), to_index(i1))
+setindex!{T}(A::Array{T}, x, i1::Real, i2::Real, I::Real...) = arrayset(A, convert(T,x), to_index(i1), to_index(i2), to_indexes(I...)...)
+
+unsafe_setindex!{T}(A::Array{T}, x, i1::Real, I::Real...) = @inbounds return arrayset(A, convert(T,x), to_index(i1), to_indexes(I...)...)
 
 # These are redundant with the abstract fallbacks but needed for bootstrap
 function setindex!(A::Array, x, I::AbstractVector{Int})
@@ -652,8 +637,14 @@ reverseind(a::AbstractVector, i::Integer) = length(a) + 1 - i
 reverse(v::StridedVector) = (n=length(v); [ v[n-i+1] for i=1:n ])
 reverse(v::StridedVector, s, n=length(v)) = reverse!(copy(v), s, n)
 function reverse!(v::StridedVector, s=1, n=length(v))
+    if n <= s  # empty case; ok
+    elseif !(1 ≤ s ≤ endof(v))
+        throw(BoundsError(v, s))
+    elseif !(1 ≤ n ≤ endof(v))
+        throw(BoundsError(v, n))
+    end
     r = n
-    for i=s:div(s+n-1,2)
+    @inbounds for i in s:div(s+n-1, 2)
         v[i], v[r] = v[r], v[i]
         r -= 1
     end

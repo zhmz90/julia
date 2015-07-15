@@ -253,12 +253,12 @@ show(io::IO, s::Symbol) = show_unquoted_quote_expr(io, s, 0, 0)
 # While this isn’t true of ALL show methods, it is of all ASTs.
 
 typealias ExprNode Union{Expr, QuoteNode, SymbolNode, LineNumberNode,
-                         LabelNode, GotoNode, TopNode}
+                         LabelNode, GotoNode, TopNode, GlobalRef}
 # Operators have precedence levels from 1-N, and show_unquoted defaults to a
 # precedence level of 0 (the fourth argument). The top-level print and show
 # methods use a precedence of -1 to specially allow space-separated macro syntax
-print        (io::IO, ex::ExprNode)    = (show_unquoted(io, ex, 0, -1); nothing)
-show         (io::IO, ex::ExprNode)    = show_unquoted_quote_expr(io, ex, 0, -1)
+print(        io::IO, ex::ExprNode)    = (show_unquoted(io, ex, 0, -1); nothing)
+show(         io::IO, ex::ExprNode)    = show_unquoted_quote_expr(io, ex, 0, -1)
 show_unquoted(io::IO, ex)              = show_unquoted(io, ex, 0, 0)
 show_unquoted(io::IO, ex, indent::Int) = show_unquoted(io, ex, indent, 0)
 show_unquoted(io::IO, ex, ::Int,::Int) = show(io, ex)
@@ -410,6 +410,7 @@ show_unquoted(io::IO, ex::LineNumberNode, ::Int, ::Int) = show_linenumber(io, ex
 show_unquoted(io::IO, ex::LabelNode, ::Int, ::Int)      = print(io, ex.label, ": ")
 show_unquoted(io::IO, ex::GotoNode, ::Int, ::Int)       = print(io, "goto ", ex.label)
 show_unquoted(io::IO, ex::TopNode, ::Int, ::Int)        = print(io,"top(",ex.name,')')
+show_unquoted(io::IO, ex::GlobalRef, ::Int, ::Int)      = print(io, ex.mod, '.', ex.name)
 
 function show_unquoted(io::IO, ex::SymbolNode, ::Int, ::Int)
     print(io, ex.name)
@@ -494,7 +495,11 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
     # function call
     elseif head == :call && nargs >= 1
         func = args[1]
-        func_prec = operator_precedence(func)
+        fname = isa(func,GlobalRef) ? func.name : func
+        func_prec = operator_precedence(fname)
+        if func_prec > 0 || fname in uni_ops
+            func = fname
+        end
         func_args = args[2:end]
 
         if in(ex.args[1], (:box, TopNode(:box), :throw)) || ismodulecall(ex)
@@ -502,8 +507,8 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
         end
 
         # scalar multiplication (i.e. "100x")
-        if (func == :(*) && length(func_args)==2 &&
-            isa(func_args[1], Real) && isa(func_args[2], Symbol))
+        if (func == :(*) &&
+            length(func_args)==2 && isa(func_args[1], Real) && isa(func_args[2], Symbol))
             if func_prec <= prec
                 show_enclosed_list(io, '(', func_args, "", ')', indent, func_prec)
             else
@@ -595,6 +600,10 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
     elseif is(head, :type) && nargs==3
         show_block(io, args[1] ? :type : :immutable, args[2], args[3], indent)
         print(io, "end")
+
+    elseif is(head, :bitstype) && nargs == 2
+        print(io, "bitstype ")
+        show_list(io, args, ' ', indent)
 
     # empty return (i.e. "function f() return end")
     elseif is(head, :return) && nargs == 1 && is(args[1], nothing)
@@ -887,6 +896,7 @@ xdump(fn::Function, io::IO, args...) = throw(ArgumentError("invalid arguments to
 xdump(fn::Function, args...) = xdump(fn, STDOUT::IO, args...)
 xdump(io::IO, args...) = xdump(xdump, io, args...)
 xdump(args...) = with_output_limit(()->xdump(xdump, STDOUT::IO, args...), true)
+xdump(arg::IO) = xdump(xdump, STDOUT::IO, arg)
 
 # Here are methods specifically for dump:
 dump(io::IO, x, n::Int) = dump(io, x, n, "")
@@ -896,6 +906,7 @@ dump(io::IO, x::AbstractString, n::Int, indent) =
                 show(io, x); println(io))
 dump(io::IO, x, n::Int, indent) = xdump(dump, io, x, n, indent)
 dump(io::IO, args...) = throw(ArgumentError("invalid arguments to dump"))
+dump(arg::IO) = xdump(dump, STDOUT::IO, arg)
 dump(args...) = with_output_limit(()->dump(STDOUT::IO, args...), true)
 
 function dump(io::IO, x::Dict, n::Int, indent)

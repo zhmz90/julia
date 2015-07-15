@@ -3014,3 +3014,111 @@ let a = (1:1000...),
     @test (a == b) === true
     @test (a === b) === true
 end
+
+# issue 11858
+type Foo11858
+    x::Float64
+end
+
+type Bar11858
+    x::Float64
+end
+
+g11858(x::Float64) = x
+f11858(a) = for Baz in a
+    Baz(x) = Baz(float(x))
+end
+f11858(Any[Foo11858, Bar11858, g11858])
+
+@test g11858(1) == 1.0
+@test Foo11858(1).x == 1.0
+@test Bar11858(1).x == 1.0
+
+# issue 11904
+@noinline throw_error() = error()
+foo11904(x::Int) = x
+@inline function foo11904{S}(x::Nullable{S})
+    if isbits(S)
+        Nullable(foo11904(x.value), x.isnull)
+    else
+        throw_error()
+    end
+end
+
+@test !foo11904(Nullable(1)).isnull
+
+# issue 11874
+immutable Foo11874
+   x::Int
+end
+
+function bar11874(x)
+   y::Foo11874
+   y=x
+end
+
+Base.convert(::Type{Foo11874},x::Int) = float(x)
+
+@test_throws TypeError bar11874(1)
+
+# issue #9233
+let
+    err = @test_throws TypeError NTuple{Int, 1}
+    @test err.func == :apply_type
+    @test err.expected == Int
+    @test err.got == Int
+
+    err = @test_throws TypeError NTuple{0x1, Int}
+    @test err.func == :apply_type
+    @test err.expected == Int
+    @test err.got == 0x1
+end
+
+# 11996
+@test_throws ErrorException NTuple{-1, Int}
+@test_throws TypeError Union{Int, 1}
+
+# issue #10930
+@test isa(code_typed(promote,(Any,Any,Vararg{Any})), Array)
+find_tvar10930{T<:Tuple}(sig::Type{T}) = 1
+function find_tvar10930(arg)
+    if arg<:Tuple
+        find_tvar10930(arg[random_var_name])
+    end
+    return 1
+end
+@test find_tvar10930(Vararg{Int}) === 1
+
+# issue #12003
+const DATE12003 = DateTime(1917,1,1)
+failure12003(dt=DATE12003) = Dates.year(dt)
+@test isa(failure12003(), Integer)
+
+# issue #12023 Test error checking in bitstype
+@test_throws ErrorException bitstype 0 SPJa12023
+@test_throws ErrorException bitstype 4294967312 SPJb12023
+@test_throws ErrorException bitstype -4294967280 SPJc12023
+
+# issue #12089
+type A12089{K, N}
+    sz::NTuple{N, Int}
+    A12089(sz::NTuple{N, Int}) = new(sz)
+end
+A12089{-1, 1}((1,))
+
+# issue #12092
+f12092(x::Int, y) = 0
+f12092(x::Int,) = 1
+f12092(x::Int, y::Int...) = 2
+@test f12092(1) == 1
+
+# issue #12096
+let a = Val{Val{TypeVar(:_,Int,true)}}
+    @test_throws UndefRefError a.instance
+    @test !isleaftype(a)
+end
+
+# PR #12058
+let N = TypeVar(:N,true)
+    @test typeintersect(NTuple{N,Int}, NTuple{N,Float64}) === Tuple{}
+end

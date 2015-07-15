@@ -26,9 +26,27 @@ macro assertposdef()
 end
 
 #Check that upper/lower (for special matrices) is correctly specified
-macro chkuplo()
-    :((uplo=='U' || uplo=='L') ||
-      throw(ArgumentError(string("uplo argument must be 'U' (upper) or 'L' (lower), got ", repr(uplo)))))
+function chkuplo(uplo::Char)
+    (uplo=='U' || uplo=='L') ||
+      throw(ArgumentError(string("uplo argument must be 'U' (upper) or 'L' (lower), got $uplo")))
+end
+
+#Check that {c}transpose is correctly specified
+function chktrans(trans::Char)
+    (trans=='N' || trans=='C' || trans=='T') ||
+      throw(ArgumentError(string("trans argument must be 'N' (no transpose), 'T' (transpose), or 'C' (conjugate transpose), got $trans")))
+end
+
+#Check that left/right hand side multiply is correctly specified
+function chkside(side::Char)
+    (side=='L' || side=='R') ||
+      throw(ArgumentError(string("side argument must be 'L' (left hand multiply) or 'R' (right hand multiply), got $side")))
+end
+
+#Check that unit diagonal flag is correctly specified
+function chkdiag(diag::Char)
+    (diag=='U' || diag=='N') ||
+      throw(ArgumentError(string("diag argument must be 'U' (unit diagonal) or 'N' (non-unit diagonal), got $diag")))
 end
 
 subsetrows(X::AbstractVector, Y::AbstractArray, k) = Y[1:k]
@@ -71,6 +89,7 @@ for (gbtrf, gbtrs, elty) in
                         AB::StridedMatrix{$elty}, ipiv::Vector{BlasInt},
                         B::StridedVecOrMat{$elty})
             chkstride1(AB, B)
+            chktrans(trans)
             info = Array(BlasInt, 1)
             n    = size(AB,2)
             if m != n || m != size(B,1)
@@ -125,6 +144,7 @@ for (gebal, gebak, elty, relty) in
                         ilo::BlasInt, ihi::BlasInt, scale::Vector{$relty},
                         V::StridedMatrix{$elty})
             chkstride1(V)
+            chkside(side)
             n = chksquare(V)
             info    = Array(BlasInt, 1)
             ccall(($(blasfunc(gebak)), liblapack), Void,
@@ -485,6 +505,8 @@ for (tzrzf, ormrz, elty) in
    # 28 *       .. Array Arguments ..
    # 29 *       COMPLEX*16         A( LDA, * ), C( LDC, * ), TAU( * ), WORK( * )
         function ormrz!(side::Char, trans::Char, A::StridedMatrix{$elty}, tau::StridedVector{$elty}, C::StridedMatrix{$elty})
+            chktrans(trans)
+            chkside(side)
             m, n = size(C)
             k = length(tau)
             l = size(A, 2) - size(A, 1)
@@ -527,6 +549,7 @@ for (gels, gesv, getrs, getri, elty) in
         #       CHARACTER          TRANS
         #       INTEGER            INFO, LDA, LDB, LWORK, M, N, NRHS
         function gels!(trans::Char, A::StridedMatrix{$elty}, B::StridedVecOrMat{$elty})
+            chktrans(trans)
             chkstride1(A, B)
             btrn  = trans == 'T'
             m, n  = size(A)
@@ -590,6 +613,7 @@ for (gels, gesv, getrs, getri, elty) in
         #      INTEGER            IPIV( * )
         #      DOUBLE PRECISION   A( LDA, * ), B( LDB, * )
         function getrs!(trans::Char, A::StridedMatrix{$elty}, ipiv::Vector{BlasInt}, B::StridedVecOrMat{$elty})
+            chktrans(trans)
             chkstride1(A, B)
             n = chksquare(A)
             if n != size(B, 1)
@@ -657,14 +681,18 @@ for (gesvx, elty) in
         function gesvx!(fact::Char, trans::Char, A::StridedMatrix{$elty},
                AF::StridedMatrix{$elty}, ipiv::Vector{BlasInt}, equed::Char,
                R::Vector{$elty}, C::Vector{$elty}, B::StridedVecOrMat{$elty})
-            lda, n    = size(A)
-            ldaf, n   = size(AF)
-            ldb, nrhs = ndims(B)==2 ? size(B) : (size(B,1), 1)
+            chktrans(trans)
+            n   = chksquare(A)
+            lda = stride(A,2)
+            n   = chksquare(AF)
+            ldaf = stride(AF,2)
+            nrhs = size(B,2)
+            ldb = stride(B,2)
             rcond     = Array($elty, 1)
             ferr      = similar(A, $elty, nrhs)
             berr      = similar(A, $elty, nrhs)
             work      = Array($elty, 4n)
-            iwork     = Array($elty, n)
+            iwork     = Array(BlasInt, n)
             info      = Array(BlasInt, 1)
             X = similar(A, $elty, n, nrhs)
             ccall(($(blasfunc(gesvx)), liblapack), Void,
@@ -712,16 +740,20 @@ for (gesvx, elty, relty) in
         function gesvx!(fact::Char, trans::Char, A::StridedMatrix{$elty},
              AF::StridedMatrix{$elty}, ipiv::Vector{BlasInt}, equed::Char,
              R::Vector{$relty}, C::Vector{$relty}, B::StridedVecOrMat{$elty})
-            lda, n    = size(A)
-            ldaf, n   = size(AF)
-            ldb, nrhs = ndims(B)==2 ? size(B) : (size(B, 1), 1)
+            chktrans(trans)
+            n   = chksquare(A)
+            lda = stride(A,2)
+            n   = chksquare(AF)
+            ldaf = stride(AF,2)
+            nrhs = size(B,2)
+            ldb = stride(B,2)
             rcond     = Array($relty, 1)
             ferr      = similar(A, $relty, nrhs)
             berr      = similar(A, $relty, nrhs)
-            work      = Array($elty, 4n)
+            work      = Array($elty, 2n)
             rwork     = Array($relty, 2n)
             info      = Array(BlasInt, 1)
-            x = similar(A, $elty, n, nrhs)
+            X = similar(A, $elty, n, nrhs)
             ccall(($(blasfunc(gesvx)), liblapack), Void,
               (Ptr{UInt8}, Ptr{UInt8}, Ptr{BlasInt}, Ptr{BlasInt},
                Ptr{$elty}, Ptr{BlasInt}, Ptr{$elty}, Ptr{BlasInt}, Ptr{BlasInt},
@@ -1651,6 +1683,7 @@ for (gtsv, gttrf, gttrs, elty) in
         function gttrs!(trans::Char, dl::Vector{$elty}, d::Vector{$elty},
                         du::Vector{$elty}, du2::Vector{$elty}, ipiv::Vector{BlasInt},
                         B::StridedVecOrMat{$elty})
+            chktrans(trans)
             chkstride1(B)
             n = length(d)
             if length(dl) != n - 1
@@ -1756,6 +1789,8 @@ for (orglq, orgqr, ormlq, ormqr, gemqrt, elty) in
         #      DOUBLE PRECISION   A( LDA, * ), C( LDC, * ), TAU( * ), WORK( * )
         function ormlq!(side::Char, trans::Char, A::StridedMatrix{$elty},
                         tau::Vector{$elty}, C::StridedVecOrMat{$elty})
+            chktrans(trans)
+            chkside(side)
             chkstride1(A, C)
             m, n = ndims(C)==2 ? size(C) : (size(C, 1), 1)
             nA    = size(A, 2)
@@ -1799,6 +1834,8 @@ for (orglq, orgqr, ormlq, ormqr, gemqrt, elty) in
         #      DOUBLE PRECISION   A( LDA, * ), C( LDC, * ), TAU( * ), WORK( * )
         function ormqr!(side::Char, trans::Char, A::StridedMatrix{$elty},
                         tau::Vector{$elty}, C::StridedVecOrMat{$elty})
+            chktrans(trans)
+            chkside(side)
             chkstride1(A, C)
             m, n = ndims(C)==2 ? size(C) : (size(C, 1), 1)
             mA    = size(A, 1)
@@ -1837,6 +1874,8 @@ for (orglq, orgqr, ormlq, ormqr, gemqrt, elty) in
             C
         end
         function gemqrt!(side::Char, trans::Char, V::Matrix{$elty}, T::Matrix{$elty}, C::StridedVecOrMat{$elty})
+            chktrans(trans)
+            chkside(side)
             chkstride1(T, C)
             m, n = ndims(C)==2 ? size(C) : (size(C, 1), 1)
             nb, k = size(T)
@@ -1904,7 +1943,7 @@ for (posv, potrf, potri, potrs, pstrf, elty, rtyp) in
         function posv!(uplo::Char, A::StridedMatrix{$elty}, B::StridedVecOrMat{$elty})
             chkstride1(A, B)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             if size(B,1) != n
                 throw(DimensionMismatch("First dimension of B, $(size(B,1)), and size of A, ($n,$n), must match!"))
             end
@@ -1926,7 +1965,7 @@ for (posv, potrf, potri, potrs, pstrf, elty, rtyp) in
         function potrf!(uplo::Char, A::StridedMatrix{$elty})
             chkstride1(A)
             chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             lda = max(1,stride(A,2))
             if lda == 0
                 return A, 0
@@ -1949,7 +1988,7 @@ for (posv, potrf, potri, potrs, pstrf, elty, rtyp) in
         #       DOUBLE PRECISION   A( LDA, * )
         function potri!(uplo::Char, A::StridedMatrix{$elty})
             chkstride1(A)
-            @chkuplo
+            chkuplo(uplo)
             info = Array(BlasInt, 1)
             ccall(($(blasfunc(potri)), liblapack), Void,
                   (Ptr{UInt8}, Ptr{BlasInt}, Ptr{$elty}, Ptr{BlasInt}, Ptr{BlasInt}),
@@ -1967,7 +2006,7 @@ for (posv, potrf, potri, potrs, pstrf, elty, rtyp) in
         function potrs!(uplo::Char, A::StridedMatrix{$elty}, B::StridedVecOrMat{$elty})
             chkstride1(A, B)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             nrhs = size(B,2)
             if size(B,1) != n
                 throw(DimensionMismatch("First dimension of B, $(size(B,1)), and size of A, ($n,$n), must match!"))
@@ -1997,7 +2036,7 @@ for (posv, potrf, potri, potrs, pstrf, elty, rtyp) in
         function pstrf!(uplo::Char, A::StridedMatrix{$elty}, tol::Real)
             chkstride1(A)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             piv  = similar(A, BlasInt, n)
             rank = Array(BlasInt, 1)
             work = Array($rtyp, 2n)
@@ -2103,7 +2142,7 @@ for (pttrs, elty, relty) in
 #       COMPLEX*16         B( LDB, * ), E( * )
         function pttrs!(uplo::Char, D::Vector{$relty}, E::Vector{$elty}, B::StridedVecOrMat{$elty})
             chkstride1(B)
-            @chkuplo
+            chkuplo(uplo)
             n = length(D)
             if length(E) != n - 1
                 throw(DimensionMismatch("E has length $(length(E)), but needs $(n - 1)"))
@@ -2138,7 +2177,8 @@ for (trtri, trtrs, elty) in
         function trtri!(uplo::Char, diag::Char, A::StridedMatrix{$elty})
             chkstride1(A)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
+            chkdiag(diag)
             lda     = max(1,stride(A, 2))
             info    = Array(BlasInt, 1)
             ccall(($(blasfunc(trtri)), liblapack), Void,
@@ -2156,9 +2196,11 @@ for (trtri, trtrs, elty) in
         #       DOUBLE PRECISION   A( LDA, * ), B( LDB, * )
         function trtrs!(uplo::Char, trans::Char, diag::Char,
                         A::StridedMatrix{$elty}, B::StridedVecOrMat{$elty})
+            chktrans(trans)
+            chkdiag(diag)
             chkstride1(A)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             if n != size(B,1)
                 throw(DimensionMismatch("B has first dimension $(size(B,1)) but needs $n"))
             end
@@ -2191,8 +2233,9 @@ for (trcon, trevc, trrfs, elty) in
         function trcon!(norm::Char, uplo::Char, diag::Char,
                         A::StridedMatrix{$elty})
             chkstride1(A)
+            chkdiag(diag)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             rcond = Array($elty, 1)
             work  = Array($elty, 3n)
             iwork = Array(BlasInt, n)
@@ -2219,6 +2262,7 @@ for (trcon, trevc, trrfs, elty) in
         function trevc!(side::Char, howmny::Char, select::Vector{BlasInt}, T::StridedMatrix{$elty},
                 VL::StridedMatrix{$elty} = similar(T), VR::StridedMatrix{$elty} = similar(T))
             # Extract
+            chkside(side)
             n, mm = chksquare(T), size(VL, 2)
             ldt, ldvl, ldvr = stride(T, 2), stride(VL, 2), stride(VR, 2)
 
@@ -2272,7 +2316,9 @@ for (trcon, trevc, trrfs, elty) in
         function trrfs!(uplo::Char, trans::Char, diag::Char,
                 A::StridedMatrix{$elty}, B::StridedVecOrMat{$elty}, X::StridedVecOrMat{$elty},
                 Ferr::StridedVector{$elty}=similar(B, $elty, size(B,2)), Berr::StridedVector{$elty} = similar(B, $elty, size(B,2)))
-            @chkuplo
+            chktrans(trans)
+            chkuplo(uplo)
+            chkdiag(diag)
             n = size(A,2)
             nrhs = size(B,2)
             if nrhs != size(X,2)
@@ -2310,7 +2356,8 @@ for (trcon, trevc, trrfs, elty, relty) in
                         A::StridedMatrix{$elty})
             chkstride1(A)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
+            chkdiag(diag)
             rcond = Array($relty, 1)
             work  = Array($elty, 2n)
             rwork = Array($relty, n)
@@ -2393,7 +2440,9 @@ for (trcon, trevc, trrfs, elty, relty) in
         function trrfs!(uplo::Char, trans::Char, diag::Char,
                 A::StridedMatrix{$elty}, B::StridedVecOrMat{$elty}, X::StridedVecOrMat{$elty},
                 Ferr::StridedVector{$relty}=similar(B, $relty, size(B,2)), Berr::StridedVector{$relty}=similar(B, $relty, size(B,2)))
-            @chkuplo
+            chktrans(trans)
+            chkuplo(uplo)
+            chkdiag(diag)
             n=size(A,2)
             nrhs=size(B,2)
             if nrhs != size(X,2)
@@ -2598,7 +2647,7 @@ for (syconv, sysv, sytrf, sytri, sytrs, elty) in
         function syconv!(uplo::Char, A::StridedMatrix{$elty}, ipiv::Vector{BlasInt})
             chkstride1(A)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             work  = Array($elty, n)
             info  = Array(BlasInt, 1)
             ccall(($(blasfunc(syconv)), liblapack), Void,
@@ -2619,7 +2668,7 @@ for (syconv, sysv, sytrf, sytri, sytrs, elty) in
         function sysv!(uplo::Char, A::StridedMatrix{$elty}, B::StridedVecOrMat{$elty})
             chkstride1(A,B)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             if n != size(B,1)
                 throw(DimensionMismatch("B has first dimension $(size(B,1)), but needs $n"))
             end
@@ -2652,7 +2701,7 @@ for (syconv, sysv, sytrf, sytri, sytrs, elty) in
         function sytrf!(uplo::Char, A::StridedMatrix{$elty})
             chkstride1(A)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             ipiv  = similar(A, BlasInt, n)
             if n == 0
                 return A, ipiv
@@ -2684,7 +2733,7 @@ for (syconv, sysv, sytrf, sytri, sytrs, elty) in
 #         function sytri!(uplo::Char, A::StridedMatrix{$elty}, ipiv::Vector{BlasInt})
 #             chkstride1(A)
 #             n = chksquare(A)
-#             @chkuplo
+#             chkuplo(uplo)
 #             work  = Array($elty, 1)
 #             lwork = BlasInt(-1)
 #             info  = Array(BlasInt, 1)
@@ -2712,7 +2761,7 @@ for (syconv, sysv, sytrf, sytri, sytrs, elty) in
         function sytri!(uplo::Char, A::StridedMatrix{$elty}, ipiv::Vector{BlasInt})
             chkstride1(A)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             work  = Array($elty, n)
             info  = Array(BlasInt, 1)
             ccall(($(blasfunc(sytri)), liblapack), Void,
@@ -2735,7 +2784,7 @@ for (syconv, sysv, sytrf, sytri, sytrs, elty) in
                        ipiv::Vector{BlasInt}, B::StridedVecOrMat{$elty})
             chkstride1(A,B)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             if n != size(B,1)
                 throw(DimensionMismatch("B has first dimension $(size(B,1)), but needs $n"))
             end
@@ -2767,7 +2816,7 @@ for (syconv, hesv, hetrf, hetri, hetrs, elty, relty) in
         function syconv!(uplo::Char, A::StridedMatrix{$elty}, ipiv::Vector{BlasInt})
             chkstride1(A)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             work  = Array($elty, n)
             info  = Array(BlasInt, 1)
             ccall(($(blasfunc(syconv)), liblapack), Void,
@@ -2788,7 +2837,7 @@ for (syconv, hesv, hetrf, hetri, hetrs, elty, relty) in
         function hesv!(uplo::Char, A::StridedMatrix{$elty}, B::StridedVecOrMat{$elty})
             chkstride1(A,B)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             if n != size(B,1)
                 throw(DimensionMismatch("B has first dimension $(size(B,1)), but needs $n"))
             end
@@ -2821,7 +2870,7 @@ for (syconv, hesv, hetrf, hetri, hetrs, elty, relty) in
         function hetrf!(uplo::Char, A::StridedMatrix{$elty})
             chkstride1(A)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             ipiv  = similar(A, BlasInt, n)
             work  = Array($elty, 1)
             lwork = BlasInt(-1)
@@ -2851,7 +2900,7 @@ for (syconv, hesv, hetrf, hetri, hetrs, elty, relty) in
 #         function hetri!(uplo::Char, A::StridedMatrix{$elty}, ipiv::Vector{BlasInt})
 #             chkstride1(A)
 #             n = chksquare(A)
-#             @chkuplo
+#             chkuplo(uplo)
 #             work  = Array($elty, 1)
 #             lwork = BlasInt(-1)
 #             info  = Array(BlasInt, 1)
@@ -2879,7 +2928,7 @@ for (syconv, hesv, hetrf, hetri, hetrs, elty, relty) in
         function hetri!(uplo::Char, A::StridedMatrix{$elty}, ipiv::Vector{BlasInt})
             chkstride1(A)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             work  = Array($elty, n)
             info  = Array(BlasInt, 1)
             ccall(($(blasfunc(hetri)), liblapack), Void,
@@ -2930,7 +2979,7 @@ for (sysv, sytrf, sytri, sytrs, elty, relty) in
         function sysv!(uplo::Char, A::StridedMatrix{$elty}, B::StridedVecOrMat{$elty})
             chkstride1(A,B)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             if n != size(B,1)
                 throw(DimensionMismatch("B has first dimension $(size(B,1)), but needs $n"))
             end
@@ -2964,7 +3013,7 @@ for (sysv, sytrf, sytri, sytrs, elty, relty) in
         function sytrf!(uplo::Char, A::StridedMatrix{$elty})
             chkstride1(A)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             ipiv  = similar(A, BlasInt, n)
             work  = Array($elty, 1)
             lwork = BlasInt(-1)
@@ -2994,7 +3043,7 @@ for (sysv, sytrf, sytri, sytrs, elty, relty) in
 #         function sytri!(uplo::Char, A::StridedMatrix{$elty}, ipiv::Vector{BlasInt})
 #             chkstride1(A)
 #             n = chksquare(A)
-#             @chkuplo
+#             chkuplo(uplo)
 #             work  = Array($elty, 1)
 #             lwork = BlasInt(-1)
 #             info  = Array(BlasInt, 1)
@@ -3022,7 +3071,7 @@ for (sysv, sytrf, sytri, sytrs, elty, relty) in
         function sytri!(uplo::Char, A::StridedMatrix{$elty}, ipiv::Vector{BlasInt})
             chkstride1(A)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             work  = Array($elty, n)
             info  = Array(BlasInt, 1)
             ccall(($(blasfunc(sytri)), liblapack), Void,
@@ -3044,7 +3093,7 @@ for (sysv, sytrf, sytri, sytrs, elty, relty) in
                        ipiv::Vector{BlasInt}, B::StridedVecOrMat{$elty})
             chkstride1(A,B)
             n = chksquare(A)
-            @chkuplo
+            chkuplo(uplo)
             if n != size(B,1)
                 throw(DimensionMismatch("B has first dimension $(size(B,1)), but needs $n"))
             end
@@ -3377,7 +3426,7 @@ for (bdsqr, relty, elty) in
             ldvt, ldu, ldc = max(1, stride(Vt,2)), max(1, stride(U, 2)), max(1, stride(C,2))
 
             # Do checks
-            @chkuplo
+            chkuplo(uplo)
             if length(e_) != n - 1
                 throw(DimensionMismatch("off-diagonal has length $(length(e_)) but should have length $(n - 1)"))
             end
@@ -3432,7 +3481,7 @@ for (bdsdc, elty) in
         #     $                   VT( LDVT, * ), WORK( * )
         function bdsdc!(uplo::Char, compq::Char, d::Vector{$elty}, e_::Vector{$elty})
             n, ldiq, ldq, ldu, ldvt = length(d), 1, 1, 1, 1
-            @chkuplo
+            chkuplo(uplo)
             if compq == 'N'
                 lwork = 6n
             elseif compq == 'P'
@@ -3952,7 +4001,7 @@ for (trsen, tgsen, elty) in
                     (Ptr{UInt8}, Ptr{UInt8}, Ptr{BlasInt}, Ptr{BlasInt},
                     Ptr{$elty}, Ptr{BlasInt}, Ptr{$elty}, Ptr{BlasInt},
                     Ptr{$elty}, Ptr{BlasInt}, Ptr{Void}, Ptr{Void},
-                    Ptr{$elty}, Ptr  {BlasInt},
+                    Ptr{$elty}, Ptr{BlasInt},
                     Ptr{BlasInt}),
                     &'N', &'V', select, &n,
                     T, &ldt, Q, &ldq,
@@ -4032,193 +4081,6 @@ for (trsen, tgsen, elty) in
                 end
             end
             S, T, alpha, beta, Q, Z
-        end
-    end
-end
-
-### Rectangular full packed format
-
-# Symmetric rank-k operation for matrix in RFP format.
-for (fn, elty, relty) in ((:dsfrk_, :Float64, :Float64),
-                   (:ssfrk_, :Float32, :Float32),
-                   (:zhfrk_, :Complex128, :Float64),
-                   (:chfrk_, :Complex64, :Float32))
-    @eval begin
-        function sfrk!(transr::Char, uplo::Char, trans::Char, alpha::Real, A::StridedMatrix{$elty}, beta::Real, C::StridedVector{$elty})
-            chkstride1(A)
-            if trans == 'N' || trans == 'n'
-                n, k = size(A)
-            elseif trans == 'T' || trans == 't'
-                k, n = size(A)
-            end
-            lda = max(1, stride(A, 2))
-            ccall(($(blasfunc(fn)), liblapack), Void,
-                (Ptr{UInt8}, Ptr{UInt8}, Ptr{UInt8}, Ptr{BlasInt},
-                 Ptr{BlasInt}, Ptr{$relty}, Ptr{$elty}, Ptr{BlasInt},
-                 Ptr{$relty}, Ptr{$elty}),
-                &transr, &uplo, &trans, &n,
-                &k, &alpha, A, &lda,
-                &beta, C)
-            C
-        end
-    end
-end
-
-# Cholesky factorization of a real symmetric positive definite matrix A
-for (fn, elty) in ((:dpftrf_, :Float64),
-                   (:spftrf_, :Float32),
-                   (:zpftrf_, :Complex128),
-                   (:cpftrf_, :Complex64))
-    @eval begin
-        function pftrf!(transr::Char, uplo::Char, A::StridedVector{$elty})
-            n = round(Int,div(sqrt(8length(A)), 2))
-            info = Array(BlasInt, 1)
-            ccall(($(blasfunc(fn)), liblapack), Void,
-                (Ptr{UInt8}, Ptr{UInt8}, Ptr{BlasInt}, Ptr{$elty},
-                 Ptr{BlasInt}),
-                &transr, &uplo, &n, A,
-                info)
-            @assertargsok
-            @assertnonsingular
-            A
-        end
-    end
-end
-
-# Computes the inverse of a (real) symmetric positive definite matrix A using the Cholesky factorization
-for (fn, elty) in ((:dpftri_, :Float64),
-                   (:spftri_, :Float32),
-                   (:zpftri_, :Complex128),
-                   (:cpftri_, :Complex64))
-    @eval begin
-        function pftri!(transr::Char, uplo::Char, A::StridedVector{$elty})
-            n = round(Int,div(sqrt(8length(A)), 2))
-            info = Array(BlasInt, 1)
-            ccall(($(blasfunc(fn)), liblapack), Void,
-                (Ptr{UInt8}, Ptr{UInt8}, Ptr{BlasInt}, Ptr{$elty},
-                 Ptr{BlasInt}),
-                &transr, &uplo, &n, A,
-                info)
-            @assertargsok
-            @assertnonsingular
-            A
-        end
-    end
-end
-
-# DPFTRS solves a system of linear equations A*X = B with a symmetric positive definite matrix A using the Cholesky factorization
-for (fn, elty) in ((:dpftrs_, :Float64),
-                   (:spftrs_, :Float32),
-                   (:zpftrs_, :Complex128),
-                   (:cpftrs_, :Complex64))
-    @eval begin
-        function pftrs!(transr::Char, uplo::Char, A::StridedVector{$elty}, B::StridedVecOrMat{$elty})
-            chkstride1(B)
-            n = round(Int,div(sqrt(8length(A)), 2))
-            if n != size(B, 1)
-                throw(DimensionMismatch("B has first dimension $(size(B,1)) but needs $n"))
-            end
-            nhrs = size(B, 2)
-            ldb = max(1, stride(B, 2))
-            info = Array(BlasInt, 1)
-            ccall(($(blasfunc(fn)), liblapack), Void,
-                (Ptr{UInt8}, Ptr{UInt8}, Ptr{BlasInt}, Ptr{BlasInt},
-                 Ptr{$elty}, Ptr{$elty}, Ptr{BlasInt}, Ptr{BlasInt}),
-                &transr, &uplo, &n, &nhrs,
-                A, B, &ldb, info)
-            @assertargsok
-            @assertposdef
-            B
-        end
-    end
-end
-
-# Solves a matrix equation (one operand is a triangular matrix in RFP format)
-for (fn, elty) in ((:dtfsm_, :Float64),
-                   (:stfsm_, :Float32),
-                   (:ztfsm_, :Complex128),
-                   (:ctfsm_, :Complex64))
-    @eval begin
-        function pftrs!(transr::Char, side::Char, uplo::Char, trans::Char, diag::Char, alpha::Real, A::StridedVector{$elty}, B::StridedMatrix{$elty})
-            chkstride1(B)
-            m, n = size(B)
-            if round(Int, div(sqrt(8length(A)), 2)) != m
-                throw(DimensionMismatch())
-            end
-            ldb = max(1, stride(B, 2))
-            ccall(($(blasfunc(fn)), liblapack), Void,
-                (Ptr{UInt8}, Ptr{UInt8}, Ptr{UInt8}, Ptr{UInt8},
-                 Ptr{UInt8}, Ptr{BlasInt}, Ptr{BlasInt}, Ptr{$elty},
-                 Ptr{$elty}, Ptr{$elty}, Ptr{BlasInt}),
-                &transr, &side, &uplo, &trans,
-                &diag, &m, &n, &alpha,
-                A, B, &ldb)
-            B
-        end
-    end
-end
-
-# Computes the inverse of a triangular matrix A stored in RFP format.
-for (fn, elty) in ((:dtftri_, :Float64),
-                   (:stftri_, :Float32),
-                   (:ztftri_, :Complex128),
-                   (:ctftri_, :Complex64))
-    @eval begin
-        function tftri!(transr::Char, uplo::Char, diag::Char, A::StridedVector{$elty})
-            n = round(Int,div(sqrt(8length(A)), 2))
-            info = Array(BlasInt, 1)
-            ccall(($(blasfunc(fn)), liblapack), Void,
-                (Ptr{UInt8}, Ptr{UInt8}, Ptr{UInt8}, Ptr{BlasInt},
-                 Ptr{$elty}, Ptr{BlasInt}),
-                &transr, &uplo, &diag, &n,
-                A, info)
-            @assertargsok
-            @assertnonsingular
-            A
-        end
-    end
-end
-
-# Copies a triangular matrix from the rectangular full packed format (TF) to the standard full format (TR)
-for (fn, elty) in ((:dtfttr_, :Float64),
-                   (:stfttr_, :Float32),
-                   (:ztfttr_, :Complex128),
-                   (:ctfttr_, :Complex64))
-    @eval begin
-        function tfttr!(transr::Char, uplo::Char, Arf::StridedVector{$elty})
-            n = round(Int,div(sqrt(8length(Arf)), 2))
-            info = Array(BlasInt, 1)
-            A = similar(Arf, $elty, n, n)
-            ccall(($(blasfunc(fn)), liblapack), Void,
-                (Ptr{UInt8}, Ptr{UInt8}, Ptr{BlasInt}, Ptr{$elty},
-                 Ptr{$elty}, Ptr{BlasInt}, Ptr{BlasInt}),
-                &transr, &uplo, &n, Arf,
-                A, &n, info)
-            @assertargsok
-            A
-        end
-    end
-end
-
-# Copies a triangular matrix from the standard full format (TR) to the rectangular full packed format (TF).
-for (fn, elty) in ((:dtrttf_, :Float64),
-                   (:strttf_, :Float32),
-                   (:ztrttf_, :Complex128),
-                   (:ctrttf_, :Complex64))
-    @eval begin
-        function trttf!(transr::Char, uplo::Char, A::StridedMatrix{$elty})
-            chkstride1(A)
-            n = size(A, 1)
-            lda = max(1, stride(A, 2))
-            info = Array(BlasInt, 1)
-            Arf = similar(A, $elty, div(n*(n+1), 2))
-            ccall(($(blasfunc(fn)), liblapack), Void,
-                (Ptr{UInt8}, Ptr{UInt8}, Ptr{BlasInt}, Ptr{$elty},
-                 Ptr{BlasInt}, Ptr{$elty}, Ptr{BlasInt}),
-                &transr, &uplo, &n, A,
-                &lda, Arf, info)
-            @assertargsok
-            Arf
         end
     end
 end

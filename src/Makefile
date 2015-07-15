@@ -27,7 +27,11 @@ endif
 # In LLVM >= 3.4, --ldflags has only options, and --system-libs has the libraries.
 LLVMLINK = $(call exec,$(LLVM_CONFIG) --ldflags) $(call exec,$(LLVM_CONFIG) --libs) $(call exec,$(LLVM_CONFIG) --ldflags) $(call exec,$(LLVM_CONFIG) --system-libs 2> /dev/null)
 ifeq ($(USE_LLVM_SHLIB),1)
+ifeq ($(LLVM_USE_CMAKE),1)
+LLVMLINK = $(call exec,$(LLVM_CONFIG) --ldflags) -lLLVM
+else
 LLVMLINK = $(call exec,$(LLVM_CONFIG) --ldflags) -lLLVM-$(call exec,$(LLVM_CONFIG) --version)
+endif
 FLAGS += -DLLVM_SHLIB
 endif
 
@@ -84,6 +88,7 @@ $(julia_flisp.boot): julia-parser.scm julia-syntax.scm \
 $(BUILDDIR)/ast.o $(BUILDDIR)/ast.dbg.obj: $(BUILDDIR)/julia_flisp.boot.inc flisp/*.h
 $(BUILDDIR)/codegen.o $(BUILDDIR)/codegen.dbg.obj: intrinsics.cpp cgutils.cpp ccall.cpp abi_*.cpp
 $(BUILDDIR)/builtins.o $(BUILDDIR)/builtins.dbg.obj: table.c
+$(BUILDDIR)/gc.o $(BUILDDIR)/gc.dbg.obj: gc-debug.c
 
 $(BUILDDIR)/support/libsupport.a: support/*.h support/*.c
 	$(MAKE) -C support BUILDDIR='$(abspath $(BUILDDIR)/support)'
@@ -161,4 +166,3 @@ clean-support:
 cleanall: clean clean-flisp clean-support
 
 .PHONY: debug release clean cleanall clean-*
-

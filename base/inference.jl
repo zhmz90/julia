@@ -765,6 +765,9 @@ function precise_container_types(args, types, vtypes, sv)
         if isa(ai,Expr) && (is_known_call(ai, svec, sv) || is_known_call(ai, tuple, sv))
             aa = ai.args
             result[i] = Any[ (isa(aa[j],Expr) ? aa[j].typ : abstract_eval(aa[j],vtypes,sv)) for j=2:length(aa) ]
+            if any(isvarargtype, result[i])
+                return nothing
+            end
         elseif ti<:Tuple && (i==n || !isvatuple(ti))
             result[i] = ti.parameters
         else
@@ -838,6 +841,11 @@ function abstract_call(f, fargs, argtypes::Vector{Any}, vtypes, sv::StaticVarInf
             end
         end
         return Any
+    end
+    for i=1:(length(argtypes)-1)
+        if isvarargtype(argtypes[i])
+            return Any
+        end
     end
     if isgeneric(f)
         return abstract_call_gf(f, fargs, Tuple{argtypes...}, e)
@@ -918,6 +926,11 @@ function abstract_eval_call(e, vtypes, sv::StaticVarInfo)
     end
     #print("call ", e.args[1], argtypes, "\n\n")
     f = _ieval(func)
+    if isa(called, Expr)
+        # if called thing is a constant, still make sure it gets annotated with a type.
+        # issue #11997
+        called.typ = abstract_eval_constant(f)
+    end
     return abstract_call(f, fargs, argtypes, vtypes, sv, e)
 end
 
@@ -1908,77 +1921,6 @@ function _sym_repl(s::Union{Symbol,GenSym}, from1, from2, to1, to2, deflt)
     return deflt
 end
 
-# return an expr to evaluate "from.sym" in module "to"
-function resolve_relative(sym, locals, args, from, to, orig)
-    if sym in locals || sym in args
-        return GlobalRef(from, sym)
-    end
-    if is(from,to)
-        return orig
-    end
-    const_from = (isconst(from,sym) && isdefined(from,sym))
-    const_to   = (isconst(to,sym) && isdefined(to,sym))
-    if const_from
-        if const_to && is(eval(from,sym), eval(to,sym))
-            return orig
-        end
-        m = _topmod()
-        if is(from, m) || is(from, Core)
-            return TopNode(sym)
-        end
-    end
-    return GlobalRef(from, sym)
-end
-
-# annotate symbols with their original module for inlining
-function resolve_globals(e::ANY, locals, args, from, to, env1, env2)
-    if isa(e,Symbol)
-        s = e::Symbol
-        if contains_is(env1, s) || contains_is(env2, s)
-            return s
-        end
-        return resolve_relative(s, locals, args, from, to, s)
-    end
-    if isa(e,SymbolNode)
-        s = e::SymbolNode
-        name = s.name
-        if contains_is(env1, name) || contains_is(env2, name)
-            return s
-        end
-        return resolve_relative(name, locals, args, from, to, s)
-    end
-    if !isa(e,Expr)
-        return e
-    end
-    e = e::Expr
-    if e.head === :(=)
-        # remove_redundant_temp_vars can only handle Symbols
-        # on the LHS of assignments, so we make sure not to put
-        # something else there
-        e2 = resolve_globals(e.args[1]::Union{Symbol,GenSym}, locals, args, from, to, env1, env2)
-        if isa(e2, GlobalRef)
-            # abort when trying to inline a function which assigns to a global
-            # variable in a different module, since `Mod.X=V` isn't allowed
-            throw(e2)
-#            e2 = e2::GetfieldNode
-#            e = Expr(:call, top_setfield, e2.value, qn(e2.name),
-#                resolve_globals(e.args[2], locals, args, from, to, env1, env2))
-#            e.typ = e2.typ
-        else
-            e.args[1] = e2::Union{Symbol,GenSym}
-            e.args[2] = resolve_globals(e.args[2], locals, args, from, to, env1, env2)
-        end
-    elseif !is(e.head,:line)
-        for i=1:length(e.args)
-            subex = e.args[i]
-            if !(isa(subex,Number) || isa(subex,AbstractString))
-                e.args[i] = resolve_globals(subex, locals, args, from, to, env1, env2)
-            end
-        end
-    end
-    e
-end
-
 # count occurrences up to n+1
 function occurs_more(e::ANY, pred, n)
     if isa(e,Expr)
@@ -2032,17 +1974,6 @@ function exprtype(x::ANY, sv::StaticVarInfo)
     end
 end
 
-function without_linenums(a::Array{Any,1})
-    l = []
-    for x in a
-        if (isa(x,Expr) && is(x.head,:line)) || isa(x,LineNumberNode)
-        else
-            push!(l, x)
-        end
-    end
-    l
-end
-
 # known affect-free calls (also effect-free)
 const _pure_builtins = Any[tuple, svec, fieldtype, apply_type, is, isa, typeof, typeassert]
 
@@ -2089,6 +2020,10 @@ function effect_free(e::ANY, sv, allow_volatile::Bool)
     if isa(e,Number) || isa(e,AbstractString) || isa(e,GenSym) ||
         isa(e,TopNode) || isa(e,QuoteNode) || isa(e,Type) || isa(e,Tuple)
         return true
+    end
+    if isa(e,GlobalRef)
+        allow_volatile && return true
+        return isconst(e.mod, e.name)
     end
     if isconstantfunc(e, sv) !== false
         return true
@@ -2306,8 +2241,8 @@ function inlineable(f::ANY, e::Expr, atype::ANY, sv::StaticVarInfo, enclosing_as
     end
 
     body = Expr(:block)
-    body.args = without_linenums(ast.args[3].args)::Array{Any,1}
-    need_mod_annotate = true
+    body.args = filter(x->!((isa(x,Expr) && is(x.head,:line)) || isa(x,LineNumberNode)),
+                       ast.args[3].args::Array{Any,1})
     cost::Int = 1000
     if incompletematch
         cost *= 4
@@ -2338,12 +2273,14 @@ function inlineable(f::ANY, e::Expr, atype::ANY, sv::StaticVarInfo, enclosing_as
             end
             body.args = Any[Expr(:return, newcall)]
             ast = Expr(:lambda, newnames, Any[[], locals, [], 0], body)
-            need_mod_annotate = false
             needcopy = false
         else
             return NF
         end
     end
+    # remove empty meta
+    body.args = filter(x->!(isa(x,Expr) && x.head === :meta && isempty(x.args)),
+                       body.args)
 
     spnames = Any[ sp[i].name for i=1:2:length(sp) ]
     enc_vinflist = enclosing_ast.args[2][1]::Array{Any,1}
@@ -2418,26 +2355,6 @@ function inlineable(f::ANY, e::Expr, atype::ANY, sv::StaticVarInfo, enclosing_as
                 push!(enc_vinflist, Any[vnew, vi[2], vi[3]])
                 break
             end
-        end
-    end
-
-    # annotate variables in the body expression with their module
-    if need_mod_annotate
-        mfrom = linfo.module; mto = (inference_stack::CallStack).mod
-        enc_capt = enclosing_ast.args[2][2]
-        if !isempty(enc_capt)
-            # add captured var names to list of locals
-            enc_vars = vcat(enc_locllist, map(vi->vi[1], enc_capt))
-        else
-            enc_vars = enc_locllist
-        end
-        try
-            body = resolve_globals(body, enc_vars, enclosing_ast.args[1], mfrom, mto, args, spnames)
-        catch ex
-            if isa(ex,GlobalRef)
-                return NF
-            end
-            rethrow(ex)
         end
     end
 
@@ -2859,7 +2776,7 @@ function inlining_pass(e::Expr, sv, ast)
     for ninline = 1:100
         ata = Any[exprtype(e.args[i],sv) for i in 2:length(e.args)]
         for a in ata
-            a === Bottom && return (e, stmts)
+            (a === Bottom || isvarargtype(a)) && return (e, stmts)
         end
         atype = Tuple{ata...}
         if length(atype.parameters) > MAX_TUPLETYPE_LEN

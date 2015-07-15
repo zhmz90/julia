@@ -64,6 +64,10 @@ USE_LIBCPP = 0
 # assume we don't have LIBSSP support in our compiler, will enable later if likely true
 HAVE_SSP = 0
 
+# GC debugging options
+WITH_GC_VERIFY = 0
+WITH_GC_DEBUG_ENV = 0
+
 # Prevent picking up $ARCH from the environment variables
 ARCH=
 
@@ -356,7 +360,6 @@ JCXXFLAGS += -std=c++11
 endif
 
 JFFLAGS = -O2 $(fPIC)
-JF2CFLAGS = -ff2c -fno-second-underscore
 ifneq ($(USEMSVC),1)
 CPP = $(CC) -E
 AR := $(CROSS_COMPILE)ar
@@ -377,23 +380,15 @@ RANLIB := $(CROSS_COMPILE)ranlib
 # file extensions
 ifeq ($(OS), WINNT)
   SHLIB_EXT = dll
-  SHELL_EXT = bat
 else ifeq ($(OS), Darwin)
   SHLIB_EXT = dylib
-  SHELL_EXT = sh
 else
   SHLIB_EXT = so
-  SHELL_EXT = sh
 endif
 
 
 # if not absolute, then relative to the directory of the julia executable
-# on windows, use .ji by default
-ifeq ($(OS),WINNT)
-JCPPFLAGS += "-DJL_SYSTEM_IMAGE_PATH=\"$(build_private_libdir_rel)/sys.ji\""
-else
 JCPPFLAGS += "-DJL_SYSTEM_IMAGE_PATH=\"$(build_private_libdir_rel)/sys.$(SHLIB_EXT)\""
-endif
 
 # On Windows, we want shared library files to end up in $(build_bindir), instead of $(build_libdir)
 ifeq ($(OS),WINNT)
@@ -425,6 +420,16 @@ ifeq (,$(findstring components,$(TAR_TEST)))
 ifneq (bsdtar,$(findstring bsdtar,$(TAR_TEST)))
 $(error "please install either GNU tar or bsdtar")
 endif
+endif
+
+ifeq ($(WITH_GC_VERIFY), 1)
+JCXXFLAGS += -DGC_VERIFY
+JCFLAGS += -DGC_VERIFY
+endif
+
+ifeq ($(WITH_GC_DEBUG_ENV), 1)
+JCXXFLAGS += -DGC_DEBUG_ENV
+JCFLAGS += -DGC_DEBUG_ENV
 endif
 
 # ===========================================================================
