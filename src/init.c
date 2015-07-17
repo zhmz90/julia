@@ -83,7 +83,7 @@ DLLEXPORT void jlbacktrace();
 DLLEXPORT void gdbbacktrace();
 DLLEXPORT void gdblookup(ptrint_t ip);
 
-static const char system_image_path[256] = JL_SYSTEM_IMAGE_PATH;
+static const char system_image_path[256] = "\0" JL_SYSTEM_IMAGE_PATH;
 
 jl_options_t jl_options = { 0,    // quiet
                             NULL, // julia_home
@@ -92,7 +92,7 @@ jl_options_t jl_options = { 0,    // quiet
                             NULL, // print
                             NULL, // postboot
                             NULL, // load
-                            system_image_path, // image_file
+                            &system_image_path[1], // image_file
                             NULL, // cpu_taget ("native", "core2", etc...)
                             0,    // nprocs
                             NULL, // machinefile
@@ -583,9 +583,11 @@ DLLEXPORT void jl_atexit_hook()
     uv_walk(loop, jl_uv_exitcleanup_walk, &queue);
     // close stdout and stderr last, since we like being
     // able to show stuff (incl. printf's)
-    if (JL_STDOUT != (void*) STDOUT_FILENO)
+    if (JL_STDOUT != (void*) STDOUT_FILENO &&
+        ((uv_handle_t*)JL_STDOUT)->type < UV_HANDLE_TYPE_MAX)
         jl_uv_exitcleanup_add((uv_handle_t*)JL_STDOUT, &queue);
-    if (JL_STDERR != (void*) STDERR_FILENO)
+    if (JL_STDERR != (void*) STDERR_FILENO &&
+        ((uv_handle_t*)JL_STDERR)->type < UV_HANDLE_TYPE_MAX)
         jl_uv_exitcleanup_add((uv_handle_t*)JL_STDERR, &queue);
     //uv_unref((uv_handle_t*)JL_STDOUT);
     //uv_unref((uv_handle_t*)JL_STDERR);
