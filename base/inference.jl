@@ -2,7 +2,7 @@
 
 # parameters limiting potentially-infinite types
 const MAX_TYPEUNION_LEN = 3
-const MAX_TYPE_DEPTH = 4
+const MAX_TYPE_DEPTH = 5
 const MAX_TUPLETYPE_LEN  = 8
 const MAX_TUPLE_DEPTH = 4
 
@@ -83,6 +83,7 @@ function _iisconst(s::Symbol)
 end
 _iisconst(s::SymbolNode) = _iisconst(s.name)
 _iisconst(s::TopNode) = isconst(_topmod(), s.name)
+_iisconst(s::GlobalRef) = isconst(s.mod, s.name)
 _iisconst(x::Expr) = false
 _iisconst(x::ANY) = true
 
@@ -173,29 +174,31 @@ add_tfunc(arraylen, 1, 1, x->Int)
 #                                     a.parameters[1] : Any))
 #add_tfunc(arrayset, 3, IInf, (a,v,i...)->a)
 add_tfunc(arraysize, 2, 2, (a,d)->Int)
-add_tfunc(pointerref, 2, 2, (a,i)->(isa(a,DataType) && a<:Ptr ? a.parameters[1] : Any))
+add_tfunc(pointerref, 2, 2, (a,i)->(isa(a,DataType) && a<:Ptr && isa(a.parameters[1],DataType) ? a.parameters[1] : Any))
 add_tfunc(pointerset, 3, 3, (a,v,i)->a)
 
 const typeof_tfunc = function (t)
     if isType(t)
         t = t.parameters[1]
         if isa(t,TypeVar)
-            Type
+            DataType
         else
             Type{typeof(t)}
         end
     elseif isa(t,DataType)
         if isleaftype(t)
             Type{t}
+        elseif t === Any
+            DataType
         else
             Type{TypeVar(:_,t)}
         end
     elseif isa(t,Union)
         Union{map(typeof_tfunc, t.types)...}
-    elseif isa(t,TypeVar)
+    elseif isa(t,TypeVar) && !(Any <: t.ub)
         Type{t}
     else
-        Type
+        DataType
     end
 end
 add_tfunc(typeof, 1, 1, typeof_tfunc)
@@ -484,7 +487,7 @@ function builtin_tfunction(f::ANY, args::ANY, argtype::ANY)
             return Bottom
         end
         a = argtypes[1]
-        return (isa(a,DataType) && a<:Array ?
+        return (isa(a,DataType) && a<:Array && isa(a.parameters[1],Type) ?
                 a.parameters[1] : Any)
     elseif is(f,Expr)
         if length(argtypes) < 1 && !isva
@@ -609,8 +612,7 @@ let stagedcache=Dict{Any,Any}()
                 # don't call staged functions on abstract types.
                 # (see issues #8504, #10230)
                 # we can't guarantee that their type behavior is monotonic.
-                error("cannot call @generated function `", m.func.code.name, "` ",
-                      "with abstract argument types: ", tt)
+                return NF
             end
             f = ccall(:jl_instantiate_staged,Any,(Any,Any,Any),m,tt,env)
             stagedcache[(m,tt,env)] = f
@@ -622,7 +624,9 @@ end
 function abstract_call_gf(f, fargs, argtype, e)
     argtypes = argtype.parameters
     tm = _topmod()
-    if length(argtypes)>1 && (argtypes[1] <: Tuple) && argtypes[2]===Int
+    if length(argtypes)>1 && argtypes[2]===Int && (argtypes[1] <: Tuple ||
+       (isa(argtypes[1], DataType) && isdefined(Main, :Base) && isdefined(Main.Base, :Pair) &&
+        (argtypes[1]::DataType).name === Main.Base.Pair.name))
         # allow tuple indexing functions to take advantage of constant
         # index arguments.
         if istopfunction(tm, f, :getindex)
@@ -682,12 +686,12 @@ function abstract_call_gf(f, fargs, argtype, e)
     end
     for (m::SimpleVector) in x
         local linfo
-        try
-            linfo = func_for_method(m[3],argtype,m[2])
-        catch
+        linfo = func_for_method(m[3],argtype,m[2])
+        if linfo === NF
             rettype = Any
             break
         end
+        linfo = linfo::LambdaStaticData
         sig = m[1]
         lsig = length(m[3].sig.parameters)
         # limit argument type tuple based on size of definition signature.
@@ -738,18 +742,17 @@ function invoke_tfunc(f, types, argtype)
     if is(argtype,Bottom)
         return Bottom
     end
-    try
-        meth = ccall(:jl_gf_invoke_lookup, Any, (Any, Any), f, types)
-        if is(meth, nothing)
-            return Any
-        end
-        (ti, env) = ccall(:jl_match_method, Any, (Any, Any, Any),
-                          argtype, meth.sig, meth.tvars)::SimpleVector
-        linfo = func_for_method(meth, types, env)
-        return typeinf(linfo, ti, env, linfo)[2]
-    catch
+    meth = ccall(:jl_gf_invoke_lookup, Any, (Any, Any), f, types)
+    if is(meth, nothing)
         return Any
     end
+    (ti, env) = ccall(:jl_match_method, Any, (Any, Any, Any),
+                      argtype, meth.sig, meth.tvars)::SimpleVector
+    linfo = func_for_method(meth, types, env)
+    if linfo === NF
+        return Any
+    end
+    return typeinf(linfo::LambdaStaticData, ti, env, linfo)[2]
 end
 
 # `types` is an array of inferred types for expressions in `args`.
@@ -2159,11 +2162,11 @@ function inlineable(f::ANY, e::Expr, atype::ANY, sv::StaticVarInfo, enclosing_as
     meth = meth[1]::SimpleVector
 
     local linfo
-    try
-        linfo = func_for_method(meth[3],atype,meth[2])
-    catch
+    linfo = func_for_method(meth[3],atype,meth[2])
+    if linfo === NF
         return NF
     end
+    linfo = linfo::LambdaStaticData
 
     ## This code tries to limit the argument list length only when it is
     ## growing due to recursion.

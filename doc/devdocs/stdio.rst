@@ -31,7 +31,7 @@ In special cases, like signal handlers, where the full ``libuv``
 infrastructure is too heavy, :func:`jl_safe_printf` can be used to
 :func:`write(2) <Base.write>` directly to :data:`STDERR_FILENO`::
 
-    void jl_safe_printf(const char \*str, ...);
+    void jl_safe_printf(const char *str, ...);
 
 
 
@@ -43,10 +43,10 @@ bound to the :code:`JL_STD*` `libuv <http://docs.libuv.org>`_ streams
 defined in the runtime.
 
 Julia's :c:func:`__init__` function (in ``base/sysimg.jl``) calls
-c:func:`reinit_stdio` (in ``base/stream.jl``) to create Julia objects
+:c:func:`reinit_stdio` (in ``base/stream.jl``) to create Julia objects
 for :data:`Base.STDIN`, :data:`Base.STDOUT` and :data:`Base.STDERR`.
 
-c:func:`reinit_stdio` uses :func:`ccall` to retrieve pointers to
+:c:func:`reinit_stdio` uses :func:`ccall` to retrieve pointers to
 :code:`JL_STD*` and calls :c:func:`jl_uv_handle_type` to inspect
 the type of each stream.  It then creates a Julia :obj:`Base.File`,
 :obj:`Base.TTY` or :obj:`Base.Pipe` object to represent each
@@ -78,7 +78,7 @@ The ``libuv`` streams relied upon by :c:func:`jl_printf` etc., are not
 available until midway through initialisation of the runtime (see
 ``init.c``, :c:func:`init_stdio`).  Error messages or warnings that need
 to be printed before this are routed to the standard C library
-c:func:`fwrite` function by the following mechanism:
+:c:func:`fwrite` function by the following mechanism:
 
 In ``sys.c``, the :code:`JL_STD*` stream pointers are statically initialised
 to integer constants: ``STD*_FILENO (0, 1 and 2)``. In ``jl_uv.c`` the
@@ -96,7 +96,7 @@ is reachable before initialisation is complete.
 Legacy ios.c library
 --------------------
 
-The :code:`julia/src/support/ios.c` library is inherited from `femtolisp <http://github.com/JeffBezanson/femtolisp>`_.
+The :code:`julia/src/support/ios.c` library is inherited from `femtolisp <https://github.com/JeffBezanson/femtolisp>`_.
 It provides cross-platform buffered file IO and in-memory temporary buffers.
 
 :code:`ios.c` is still used by:
@@ -107,7 +107,7 @@ It provides cross-platform buffered file IO and in-memory temporary buffers.
 
 Use of :code:`ios.c` in these modules is mostly self-contained and
 separated from the ``libuv`` I/O system. However, there is `one place
-<http://github.com/JuliaLang/julia/blob/master/src/flisp/print.c#L654>`_
+<https://github.com/JuliaLang/julia/blob/master/src/flisp/print.c#L654>`_
 where femtolisp calls through to :c:func:`jl_printf` with a legacy :c:type:`ios_t` stream.
 
 There is a hack in :code:`ios.h` that makes the :c:member:`ios_t.bm`

@@ -118,7 +118,7 @@ void *jl_load_and_lookup(char *f_lib, char *f_name, uv_lib_t **hnd)
         *hnd = handle = get_library(f_lib);
     void *ptr = jl_dlsym_e(handle, f_name);
     if (!ptr)
-        jl_errorf("symbol could not be found %s: %s\n", f_name, uv_dlerror(handle));
+        jl_errorf("symbol \"%s\" could not be found: %s", f_name, uv_dlerror(handle));
     return ptr;
 }
 
@@ -314,6 +314,11 @@ Value *llvm_type_rewrite(Value *v, Type *from_type, Type *target_type, bool toju
 
 // --- argument passing and scratch space utilities ---
 
+// Emit code to convert argument to form expected by C ABI
+// ty = desired LLVM type
+// jt = Julia type of formal argument
+// jv = value of actual argument
+// aty = Julia inferred type of actual argument
 static Value *julia_to_native(Type *ty, jl_value_t *jt, Value *jv,
                               jl_value_t *aty, bool addressOf,
                               bool byRef, bool inReg,
@@ -588,7 +593,7 @@ static Value *emit_cglobal(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
     else if (sym.fptr != NULL) {
         res = literal_static_pointer_val(sym.fptr, lrt);
         if (imaging_mode)
-            jl_printf(JL_STDERR,"warning: literal address used in cglobal for %s; code cannot be statically compiled\n", sym.f_name);
+            jl_printf(JL_STDERR,"WARNING: literal address used in cglobal for %s; code cannot be statically compiled\n", sym.f_name);
     }
     else {
         if (imaging_mode) {
@@ -633,7 +638,7 @@ static Value *emit_llvmcall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
                                             jl_svec_len(ctx->sp)/2);
     }
     JL_CATCH {
-        jl_rethrow_with_add("error interpreting llvmcall return type");
+        jl_rethrow_with_add("error interpreting llvmcall argument tuple");
     }
     }
     {
@@ -643,7 +648,7 @@ static Value *emit_llvmcall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
                                             jl_svec_len(ctx->sp)/2);
     }
     JL_CATCH {
-        jl_rethrow_with_add("error interpreting llvmcall argument tuple");
+        jl_rethrow_with_add("error interpreting llvmcall return type");
     }
     }
     {
@@ -1250,12 +1255,18 @@ static Value *emit_ccall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
 
         // Julia type of the current parameter
         jl_value_t *jargty;
+
+        // Index into the byRefList for the current argument
+        size_t byRefIndex;
+
         if (isVa && ai >= nargt-1) {
             largty = fargt[nargt-1];
+            byRefIndex = nargt-1;
             jargty = jl_tparam0(jl_svecref(tt,nargt-1));
         }
         else {
             largty = fargt[sret+ai];
+            byRefIndex = ai;
             jargty = jl_svecref(tt,ai);
         }
 
@@ -1303,11 +1314,14 @@ static Value *emit_ccall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
 
         bool nSR=false;
         bool issigned = jl_signed_type && jl_subtype(jargty, (jl_value_t*)jl_signed_type, 0);
+        assert(byRefList.size() == inRegList.size() && byRefIndex < byRefList.size());
+        bool byRef = byRefList[byRefIndex];
+        bool inReg = inRegList[byRefIndex];
         argvals[ai + sret] = llvm_type_rewrite(
-                julia_to_native(largty, jargty, arg, expr_type(argi, ctx), addressOf, byRefList[ai], inRegList[ai],
-                    need_private_copy(jargty, byRefList[ai]), false, ai + 1, ctx, &nSR),
+                julia_to_native(largty, jargty, arg, expr_type(argi, ctx), addressOf, byRef, inReg,
+                    need_private_copy(jargty, byRef), false, ai + 1, ctx, &nSR),
                 largty, ai + sret < fargt_sig.size() ? fargt_sig[ai + sret] : fargt_vasig,
-                false, byRefList[ai], issigned, ctx);
+                false, byRef, issigned, ctx);
         needStackRestore |= nSR;
     }
 
@@ -1327,7 +1341,7 @@ static Value *emit_ccall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
         Type *funcptype = PointerType::get(functype,0);
         llvmf = literal_static_pointer_val(fptr, funcptype);
         if (imaging_mode)
-            jl_printf(JL_STDERR,"warning: literal address used in ccall for %s; code cannot be statically compiled\n", f_name);
+            jl_printf(JL_STDERR,"WARNING: literal address used in ccall for %s; code cannot be statically compiled\n", f_name);
     }
     else {
         assert(f_name != NULL);

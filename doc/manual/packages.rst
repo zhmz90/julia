@@ -11,6 +11,10 @@ It can also install external libraries using your operating system's standard sy
 The list of registered Julia packages can be found at `<http://pkg.julialang.org>`_.
 All package manager commands are found in the :mod:`Pkg <Base.Pkg>` module, included in Julia's :mod:`Base` install.
 
+First we'll go over the mechanics of the ``Pkg`` family of commands and then we'll provide some guidance on how
+to get your package registered. Be sure to read the section below on package naming conventions, tagging versions
+and the importance of a ``REQUIRE`` file for when you're ready to add your code to the curated METADATA repository.
+
 Package Status
 --------------
 
@@ -124,7 +128,7 @@ When you decide that you don't want to have a package around any more, you can u
 
 Once again, this is equivalent to editing the ``REQUIRE`` file to remove the line with each package name on it then running :func:`Pkg.resolve` to update the set of installed packages to match.
 While :func:`Pkg.add` and :func:`Pkg.rm` are convenient for adding and removing requirements for a single package, when you want to add or remove multiple packages, you can call :func:`Pkg.edit` to manually change the contents of ``REQUIRE`` and then update your packages accordingly.
-:func:`Pkg.edit` does not roll back the contents of ``REQUIRE`` if :func:`Pkg.resolve` fails – rather, you have to run :func:`Pkg.edit` again to fix the files contents yourself.
+:func:`Pkg.edit` does not roll back the contents of ``REQUIRE`` if :func:`Pkg.resolve` fails – rather, you have to run :func:`Pkg.edit` again to fix the files contents yourself.
 
 Because the package manager uses git internally to manage the package git repositories, users may run into protocol issues (if behind a firewall, for example), when running :func:`Pkg.add`. The following command can be run from the command line to tell git to use 'https' instead of the 'git' protocol when cloning repositories::
 
@@ -196,8 +200,8 @@ If the branch cannot be fast-forwarded, it is assumed that you're working on it 
 Finally, the update process recomputes an optimal set of package versions to have installed to satisfy your top-level requirements and the requirements of "fixed" packages.
 A package is considered fixed if it is one of the following:
 
-1. **Unregistered:** the package is not in ``METADATA`` – you installed it with :func:`Pkg.clone`.
-2. **Checked out:** the package repo is on a development branch.
+1. **Unregistered:** the package is not in ``METADATA`` – you installed it with :func:`Pkg.clone`.
+2. **Checked out:** the package repo is on a development branch.
 3. **Dirty:** changes have been made to files in the repo.
 
 If any of these are the case, the package manager cannot freely change the installed version of the package, so its requirements must be satisfied by whatever other package versions it picks.
@@ -234,7 +238,7 @@ In such cases, you can do :func:`Pkg.checkout(pkg) <Pkg.checkout>` to checkout t
      - NumericExtensions             0.2.17
      - Stats                         0.2.7
 
-Immediately after installing ``Distributions`` with :func:`Pkg.add` it is on the current most recent registered version – ``0.2.9`` at the time of writing this.
+Immediately after installing ``Distributions`` with :func:`Pkg.add` it is on the current most recent registered version – ``0.2.9`` at the time of writing this.
 Then after running :func:`Pkg.checkout("Distributions") <Pkg.checkout>`, you can see from the output of :func:`Pkg.status` that ``Distributions`` is on an unregistered version greater than ``0.2.9``, indicated by the "pseudo-version" number ``0.2.9+``.
 
 When you checkout an unregistered version of a package, the copy of the ``REQUIRE`` file in the package repo takes precedence over any requirements registered in ``METADATA``, so it is important that developers keep this file accurate and up-to-date, reflecting the actual requirements of the current version of the package.
@@ -268,7 +272,7 @@ If you want to pin a package at a specific version so that calling :func:`Pkg.up
      - NumericExtensions             0.2.17
      - Stats                         0.2.7              pinned.47c198b1.tmp
 
-After this, the ``Stats`` package will remain pinned at version ``0.2.7`` – or more specifically, at commit ``47c198b1``, but since versions are permanently associated a given git hash, this is the same thing.
+After this, the ``Stats`` package will remain pinned at version ``0.2.7`` – or more specifically, at commit ``47c198b1``, but since versions are permanently associated a given git hash, this is the same thing.
 :func:`Pkg.pin` works by creating a throw-away branch for the commit you want to pin the package at and then checking that branch out.
 By default, it pins a package at the current commit, but you can choose a different version by passing a second argument::
 
@@ -610,7 +614,14 @@ Guidelines for naming a package
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Package names should be sensible to most Julia users, *even to those who are
-not domain experts*.
+not domain experts*. When you submit your package to METADATA, you can expect
+a little back and forth about the package name with collaborators, especially if it's
+ambiguous or can be confused with something other than what it is. During this
+bike-shedding, it's not uncommon to get a range of *different* name suggestions.
+These are only suggestions though, with the intent being to keep a tidy namespace in
+the curated METADATA repository. Since this repository belongs to the entire
+community, there will likely be a few collaborators who care your package name.
+Here are some guidelines to follow in naming your package:
 
 1. Avoid jargon. In particular, avoid acronyms unless there is minimal
    possibility of confusion.
@@ -674,7 +685,10 @@ name of a license that the package generator knows about::
     INFO: Generating README.md
     INFO: Generating src/FooBar.jl
     INFO: Generating test/runtests.jl
+    INFO: Generating REQUIRE
     INFO: Generating .travis.yml
+    INFO: Generating appveyor.yml
+    INFO: Generating .gitignore
     INFO: Committing FooBar generated files
 
 This creates the directory ``~/.julia/v0.4/FooBar``, initializes it as a git repository, generates a bunch of files
@@ -695,12 +709,15 @@ that all packages should have, and commits them to the repository::
 
         Julia Version 0.3.0-prerelease+3217 [5fcfb13*]
 
-     .travis.yml      | 16 +++++++++++++
+     .gitignore       |  2 ++
+     .travis.yml      | 13 +++++++++++++
      LICENSE.md       | 22 +++++++++++++++++++++++
      README.md        |  3 +++
+     REQUIRE          |  1 +
+     appveyor.yml     | 34 ++++++++++++++++++++++++++++++++++
      src/FooBar.jl    |  5 +++++
      test/runtests.jl |  5 +++++
-     5 files changed, 51 insertions(+)
+     8 files changed, 85 insertions(+)
 
 At the moment, the package manager knows about the MIT "Expat" License, indicated by ``"MIT"``, the Simplified BSD License,
 indicated by ``"BSD"``, and version 2.0 of the Apache Software License, indicated by ``"ASL"``.  If you want to use a
@@ -709,8 +726,9 @@ different license, you can ask us to add it to the package generator, or just pi
 
 If you created a GitHub account and configured git to know about it, :func:`Pkg.generate` will set an appropriate origin URL
 for you.  It will also automatically generate a ``.travis.yml`` file for using the `Travis <https://travis-ci.org>`_ automated
-testing service.  You will have to enable testing on the Travis website for your package repository, but once you've done that,
-it will already have working tests.  Of course, all the default testing does is verify that ``using FooBar`` in Julia works.
+testing service, and an ``appveyor.yml`` file for using `AppVeyor <http://appveyor.com>`_.  You will have to enable testing on
+the Travis and AppVeyor websites for your package repository, but once you've done that, it will already have working tests.
+Of course, all the default testing does is verify that ``using FooBar`` in Julia works.
 
 Making Your Package Available
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -718,7 +736,7 @@ Making Your Package Available
 Once you've made some commits and you're happy with how ``FooBar`` is working, you may want to get some other people to try
 it out.  First you'll need to create the remote repository and push your code to it; we don't yet automatically do this for you,
 but we will in the future and it's not too hard to figure out [3]_.  Once you've done this, letting people try out your code is
-as simple as sending them the URL of the published repo – in this case::
+as simple as sending them the URL of the published repo – in this case::
 
     git://github.com/StefanKarpinski/FooBar.jl.git
 
@@ -841,6 +859,8 @@ if they haven't already been, and then opens a pull request to ``METADATA``::
     INFO: To create a pull-request open:
 
       https://github.com/StefanKarpinski/METADATA.jl/compare/pull-request/3ef4f5c4
+
+.. _man-manual-publish:
 
 Publishing METADATA manually
 ============================

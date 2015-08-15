@@ -38,6 +38,14 @@ function plain(io::IO, list::List)
     end
 end
 
+function plain(io::IO, q::BlockQuote)
+    s = sprint(buf -> plain(buf, q.content))
+    for line in split(rstrip(s), "\n")
+        println(io, isempty(line) ? ">" : "> ", line)
+    end
+    println(io)
+end
+
 function plain(io::IO, md::HorizontalRule)
     println(io, "–" ^ 3)
 end
@@ -56,6 +64,8 @@ end
 
 plaininline(io::IO, md::Vector) = !isempty(md) && plaininline(io, md...)
 
+plaininline(io::IO, link::Link) = plaininline(io, "[", link.text, "](", link.url, ")")
+
 plaininline(io::IO, md::Image) = plaininline(io, "![", md.alt, "](", md.url, ")")
 
 plaininline(io::IO, s::String) = print(io, s)
@@ -73,3 +83,4 @@ plaininline(io::IO, x) = writemime(io, MIME"text/plain"(), x)
 # writemime
 
 Base.writemime(io::IO, ::MIME"text/plain", md::MD) = plain(io, md)
+Base.writemime(io::IO, ::MIME"text/markdown", md::MD) = plain(io, md)

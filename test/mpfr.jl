@@ -145,13 +145,16 @@ y = BigFloat(1)
 @test typeof(convert(BigFloat, Float32(0.5))) == BigFloat
 @test convert(BigFloat, parse(BigInt,"9223372036854775808")) == parse(BigFloat,"9223372036854775808")
 @test typeof(convert(BigFloat, parse(BigInt,"9223372036854775808"))) == BigFloat
-@test convert(FloatingPoint, parse(BigInt,"9223372036854775808")) == parse(BigFloat,"9223372036854775808")
-@test typeof(convert(FloatingPoint, parse(BigInt,"9223372036854775808"))) == BigFloat
+@test convert(AbstractFloat, parse(BigInt,"9223372036854775808")) == parse(BigFloat,"9223372036854775808")
+@test typeof(convert(AbstractFloat, parse(BigInt,"9223372036854775808"))) == BigFloat
 
 # convert from
 @test convert(Float64, BigFloat(0.5)) == 0.5
 @test convert(Float32, BigFloat(0.5)) == Float32(0.5)
 @test convert(Float16, BigFloat(0.5)) == Float16(0.5)
+@test convert(Bool, BigFloat(0.0)) == false
+@test convert(Bool, BigFloat(1.0)) == true
+@test_throws InexactError convert(Bool, BigFloat(0.1))
 
 # exponent
 x = BigFloat(0)
@@ -729,6 +732,15 @@ f = parse(BigFloat,"6.2230152778611417071440640537801242405902521687211671331011
 # BigInt division
 @test a / BigInt(2) == c
 
+# div
+@test div(big"1.0",big"0.1") == 9
+@test div(1,big"0.1") == 9
+@test div(1.0,big"0.1") == 9
+@test div(big"1.0",0.1) == 9
+@test div(big"1",big"0.1") == 9
+@test div(big"1",0.1) == 9
+
+
 # old tests
 tol = 1e-12
 
@@ -841,3 +853,13 @@ err(z, x) = abs(z - x) / abs(x)
 
 # issue #10994: handle embedded NUL chars for string parsing
 @test_throws ArgumentError parse(BigFloat, "1\0")
+
+# serialization (issue #12386)
+let b = IOBuffer()
+    x = 2.1*big(pi)
+    serialize(b, x)
+    seekstart(b)
+    @test deserialize(b) == x
+end
+
+@test isnan(sqrt(BigFloat(NaN)))

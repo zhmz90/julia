@@ -6,7 +6,7 @@ import Base: writemime
 
 # Basics
 # Equality is checked by making sure the HTML output is
-# the same – the structure itself may be different.
+# the same – the structure itself may be different.
 
 @test md"foo" == MD(Paragraph("foo"))
 @test md"foo *bar* baz" == MD(Paragraph(["foo ", Italic("bar"), " baz"]))
@@ -61,6 +61,15 @@ foo
 
 ---
 World""" |> plain == "Hello\n\n–––\n\nWorld\n"
+@test md"[*a*](b)" |> plain == "[*a*](b)\n"
+@test md"""
+> foo
+>
+>   * bar
+>
+> ```
+> baz
+> ```""" |> plain == """> foo\n>\n>   * bar\n>\n> ```\n> baz\n> ```\n\n"""
 
 # HTML output
 
@@ -115,6 +124,82 @@ Some **bolded**
 - list2
 """
 @test latex(book) == "\\section{Title}\nSome discussion\n\\begin{quote}\nA quote\n\\end{quote}\n\\subsection{Section \\emph{important}}\nSome \\textbf{bolded}\n\\begin{itemize}\n\\item list1\n\\item list2\n\\end{itemize}\n"
+
+# writemime output
+
+let out =
+    """
+    # Title
+
+    Some discussion
+
+    > A quote
+
+
+    ## Section *important*
+
+    Some **bolded**
+
+      * list1
+      * list2
+    """
+    @test sprint(io -> writemime(io, "text/plain", book)) == out
+    @test sprint(io -> writemime(io, "text/markdown", book)) == out
+end
+let out =
+    """
+    <div class="markdown"><h1>Title</h1>
+    <p>Some discussion</p>
+    <blockquote>
+    <p>A quote</p>
+    </blockquote>
+    <h2>Section <em>important</em></h2>
+    <p>Some <strong>bolded</strong></p>
+    <ul>
+    <li>list1</li>
+    <li>list2</li>
+    </ul>
+    </div>"""
+    @test sprint(io -> writemime(io, "text/html", book)) == out
+end
+let out =
+    """
+    \\section{Title}
+    Some discussion
+    \\begin{quote}
+    A quote
+    \\end{quote}
+    \\subsection{Section \\emph{important}}
+    Some \\textbf{bolded}
+    \\begin{itemize}
+    \\item list1
+    \\item list2
+    \\end{itemize}
+    """
+    @test sprint(io -> writemime(io, "text/latex", book)) == out
+end
+let out =
+    """
+    Title
+    *****
+
+
+    Some discussion
+
+        A quote
+
+
+    Section *important*
+    ===================
+
+
+    Some **bolded**
+
+      * list1
+      * list2
+    """
+    @test sprint(io -> writemime(io, "text/rst", book)) == out
+end
 
 # Interpolation / Custom types
 

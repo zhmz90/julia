@@ -22,7 +22,7 @@ end
 
 # to make StepRange constructor inlineable, so optimizer can see `step` value
 function steprange_last{T}(start::T, step, stop)
-    if isa(start,FloatingPoint) || isa(step,FloatingPoint)
+    if isa(start,AbstractFloat) || isa(step,AbstractFloat)
         throw(ArgumentError("StepRange should not be used with floating point"))
     end
     z = zero(step)
@@ -81,7 +81,7 @@ colon(a::Real, b::Real) = colon(promote(a,b)...)
 
 colon{T<:Real}(start::T, stop::T) = UnitRange{T}(start, stop)
 
-range(a::Real, len::Integer) = UnitRange{typeof(a)}(a, a+len-1)
+range(a::Real, len::Integer) = UnitRange{typeof(a)}(a, oftype(a, a+len-1))
 
 colon{T}(start::T, stop::T) = StepRange(start, one(stop-start), stop)
 
@@ -102,13 +102,13 @@ range{T,S}(a::T, step::S, len::Integer) = StepRange{T,S}(a, step, convert(T, a+s
 
 ## floating point ranges
 
-immutable FloatRange{T<:FloatingPoint} <: Range{T}
+immutable FloatRange{T<:AbstractFloat} <: Range{T}
     start::T
     step::T
     len::T
     divisor::T
 end
-FloatRange(a::FloatingPoint, s::FloatingPoint, l::Real, d::FloatingPoint) =
+FloatRange(a::AbstractFloat, s::AbstractFloat, l::Real, d::AbstractFloat) =
     FloatRange{promote_type(typeof(a),typeof(s),typeof(d))}(a,s,l,d)
 
 # float rationalization helper
@@ -129,7 +129,7 @@ function rat(x)
     return a, b
 end
 
-function colon{T<:FloatingPoint}(start::T, step::T, stop::T)
+function colon{T<:AbstractFloat}(start::T, step::T, stop::T)
     step == 0 && throw(ArgumentError("range step cannot be zero"))
     start == stop && return FloatRange{T}(start,step,1,1)
     (0 < step) != (start < stop) && return FloatRange{T}(start,step,0,1)
@@ -159,27 +159,27 @@ function colon{T<:FloatingPoint}(start::T, step::T, stop::T)
     FloatRange{T}(start, step, floor(r)+1, one(step))
 end
 
-colon{T<:FloatingPoint}(a::T, b::T) = colon(a, one(a), b)
+colon{T<:AbstractFloat}(a::T, b::T) = colon(a, one(a), b)
 
-colon{T<:Real}(a::T, b::FloatingPoint, c::T) = colon(promote(a,b,c)...)
-colon{T<:FloatingPoint}(a::T, b::FloatingPoint, c::T) = colon(promote(a,b,c)...)
-colon{T<:FloatingPoint}(a::T, b::Real, c::T) = colon(promote(a,b,c)...)
+colon{T<:Real}(a::T, b::AbstractFloat, c::T) = colon(promote(a,b,c)...)
+colon{T<:AbstractFloat}(a::T, b::AbstractFloat, c::T) = colon(promote(a,b,c)...)
+colon{T<:AbstractFloat}(a::T, b::Real, c::T) = colon(promote(a,b,c)...)
 
-range(a::FloatingPoint, len::Integer) = FloatRange(a,one(a),len,one(a))
-range(a::FloatingPoint, st::FloatingPoint, len::Integer) = FloatRange(a,st,len,one(a))
-range(a::Real, st::FloatingPoint, len::Integer) = FloatRange(float(a), st, len, one(st))
-range(a::FloatingPoint, st::Real, len::Integer) = FloatRange(a, float(st), len, one(a))
+range(a::AbstractFloat, len::Integer) = FloatRange(a,one(a),len,one(a))
+range(a::AbstractFloat, st::AbstractFloat, len::Integer) = FloatRange(a,st,len,one(a))
+range(a::Real, st::AbstractFloat, len::Integer) = FloatRange(float(a), st, len, one(st))
+range(a::AbstractFloat, st::Real, len::Integer) = FloatRange(a, float(st), len, one(a))
 
 ## linspace and logspace
 
-immutable LinSpace{T<:FloatingPoint} <: Range{T}
+immutable LinSpace{T<:AbstractFloat} <: Range{T}
     start::T
     stop::T
     len::T
     divisor::T
 end
 
-function linspace{T<:FloatingPoint}(start::T, stop::T, len::T)
+function linspace{T<:AbstractFloat}(start::T, stop::T, len::T)
     len == round(len) || throw(InexactError())
     0 <= len || error("linspace($start, $stop, $len): negative length")
     if len == 0
@@ -207,8 +207,8 @@ function linspace{T<:FloatingPoint}(start::T, stop::T, len::T)
             s = convert(T,n*e)
             if isinf(a*n) || isinf(c*n)
                 s, p = frexp(s)
-                p = oftype(s,2)^p
-                a /= p; c /= p
+                p2 = oftype(s,2)^p
+                a /= p2; c /= p2
             end
             if a*n/s == start && c*n/s == stop
                 return LinSpace(a, c, len, s)
@@ -218,21 +218,21 @@ function linspace{T<:FloatingPoint}(start::T, stop::T, len::T)
     a, c, s = start, stop, n
     if isinf(a*n) || isinf(c*n)
         s, p = frexp(s)
-        p = oftype(s,2)^p
-        a /= p; c /= p
+        p2 = oftype(s,2)^p
+        a /= p2; c /= p2
     end
     if a*n/s == start && c*n/s == stop
         return LinSpace(a, c, len, s)
     end
     return LinSpace(start, stop, len, n)
 end
-function linspace{T<:FloatingPoint}(start::T, stop::T, len::Real)
+function linspace{T<:AbstractFloat}(start::T, stop::T, len::Real)
     T_len = convert(T, len)
     T_len == len || throw(InexactError())
     linspace(start, stop, T_len)
 end
 linspace(start::Real, stop::Real, len::Real=50) =
-    linspace(promote(FloatingPoint(start), FloatingPoint(stop))..., len)
+    linspace(promote(AbstractFloat(start), AbstractFloat(stop))..., len)
 
 function show(io::IO, r::LinSpace)
     print(io, "linspace(")
@@ -283,8 +283,11 @@ function length{T<:Union{Int,UInt,Int64,UInt64}}(r::StepRange{T})
     end
 end
 
-length{T<:Union{Int,UInt,Int64,UInt64}}(r::UnitRange{T}) =
+length{T<:Union{Int,Int64}}(r::UnitRange{T}) =
     checked_add(checked_sub(r.stop, r.start), one(T))
+
+length{T<:Union{UInt,UInt64}}(r::UnitRange{T}) =
+    r.stop < r.start ? zero(T) : checked_add(r.stop - r.start, one(T))
 
 # some special cases to favor default Int type
 let smallint = (Int === Int64 ?
@@ -399,6 +402,7 @@ show(io::IO, r::UnitRange) = print(io, repr(first(r)), ':', repr(last(r)))
 
 =={T<:Range}(r::T, s::T) = (first(r) == first(s)) & (step(r) == step(s)) & (last(r) == last(s))
 ==(r::OrdinalRange, s::OrdinalRange) = (first(r) == first(s)) & (step(r) == step(s)) & (last(r) == last(s))
+=={T<:LinSpace}(r::T, s::T) = (first(r) == first(s)) & (length(r) == length(s)) & (last(r) == last(s))
 
 function ==(r::Range, s::Range)
     lr = length(r)
@@ -546,17 +550,26 @@ end
 .+(x::Real, r::Range) = (x+first(r)):step(r):(x+last(r))
 #.+(x::Real, r::StepRange)  = range(x + r.start, r.step, length(r))
 .+(x::Real, r::FloatRange) = FloatRange(r.divisor*x + r.start, r.step, r.len, r.divisor)
-.+(x::Real, r::LinSpace)   = LinSpace(x + r.start, x + r.stop, r.len, r.divisor)
+function .+{T}(x::Real, r::LinSpace{T})
+    x2 = x * r.divisor / (r.len - 1)
+    LinSpace(x2 + r.start, x2 + r.stop, r.len, r.divisor)
+end
 .+(r::Range, x::Real)      = x + r
 #.+(r::FloatRange, x::Real) = x + r
 
 .-(x::Real, r::Range)      = (x-first(r)):-step(r):(x-last(r))
 .-(x::Real, r::FloatRange) = FloatRange(r.divisor*x - r.start, -r.step, r.len, r.divisor)
-.-(x::Real, r::LinSpace)   = LinSpace(x - r.start, x - r.stop, r.len, r.divisor)
+function .-(x::Real, r::LinSpace)
+    x2 = x * r.divisor / (r.len - 1)
+    LinSpace(x2 - r.start, x2 - r.stop, r.len, r.divisor)
+end
 .-(r::UnitRange, x::Real)  = range(r.start-x, length(r))
 .-(r::StepRange , x::Real) = range(r.start-x, r.step, length(r))
 .-(r::FloatRange, x::Real) = FloatRange(r.start - r.divisor*x, r.step, r.len, r.divisor)
-.-(r::LinSpace, x::Real)   = LinSpace(r.start - x, r.stop - x, r.len, r.divisor)
+function .-(r::LinSpace, x::Real)
+    x2 = x * r.divisor / (r.len - 1)
+    LinSpace(r.start - x2, r.stop - x2, r.len, r.divisor)
+end
 
 .*(x::Real, r::OrdinalRange) = range(x*r.start, x*step(r), length(r))
 .*(x::Real, r::FloatRange)   = FloatRange(x*r.start, x*r.step, r.len, r.divisor)
@@ -610,6 +623,14 @@ convert{T}(::Type{LinSpace{T}}, r::OrdinalRange) =
     linspace(convert(T, first(r)), convert(T, last(r)), convert(T, length(r)))
 convert{T}(::Type{LinSpace}, r::OrdinalRange{T}) =
     convert(LinSpace{typeof(float(first(r)))}, r)
+
+# Promote FloatRange to LinSpace
+promote_rule{F,OR<:FloatRange}(::Type{LinSpace{F}}, ::Type{OR}) =
+    LinSpace{promote_type(F,eltype(OR))}
+convert{T}(::Type{LinSpace{T}}, r::FloatRange) =
+    linspace(convert(T, first(r)), convert(T, last(r)), convert(T, length(r)))
+convert{T}(::Type{LinSpace}, r::FloatRange{T}) =
+    convert(LinSpace{T}, r)
 
 
 # +/- of ranges is defined in operators.jl (to be able to use @eval etc.)

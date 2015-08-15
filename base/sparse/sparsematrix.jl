@@ -219,13 +219,24 @@ sparsevec(I::AbstractVector, V, m::Integer) = sparsevec(I, V, m, AddFun())
 
 sparsevec(I::AbstractVector, V) = sparsevec(I, V, maximum(I), AddFun())
 
-function sparsevec(I::AbstractVector, V, m::Integer, combine::Union{Function,Func})
+function sparsevec(I::AbstractVector, V, m::Integer, combine::Union{Function,Base.Func})
     nI = length(I)
-    if isa(V, Number); V = fill(V, nI); end
+    if isa(V, Number)
+        V = fill(V, nI)
+    end
+    if nI != length(V)
+        throw(ArgumentError("index and value vectors must be the same length"))
+    end
     p = sortperm(I)
     @inbounds I = I[p]
-    (nI==0 || m >= I[end]) || throw(DimensionMismatch("indices cannot be larger than length of vector"))
-    (nI==0 || I[1] > 0) || throw(BoundsError())
+    if nI > 0
+        if I[1] <= 0
+            throw(ArgumentError("I index values must be ≥ 0"))
+        end
+        if I[end] > m
+            throw(ArgumentError("all I index values must be ≤ length(sparsevec)"))
+        end
+    end
     V = V[p]
     sparse_IJ_sorted!(I, ones(eltype(I), nI), V, m, 1, combine)
 end
@@ -386,7 +397,7 @@ end
 
 
 import Base.Random.GLOBAL_RNG
-function sprand_IJ(r::AbstractRNG, m::Integer, n::Integer, density::FloatingPoint)
+function sprand_IJ(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat)
     ((m < 0) || (n < 0)) && throw(ArgumentError("invalid Array dimensions"))
     0 <= density <= 1 || throw(ArgumentError("$density not in [0,1]"))
     N = n*m
@@ -423,7 +434,7 @@ function sprand_IJ(r::AbstractRNG, m::Integer, n::Integer, density::FloatingPoin
     I, J
 end
 
-function sprand{T}(r::AbstractRNG, m::Integer, n::Integer, density::FloatingPoint,
+function sprand{T}(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat,
                 rfn::Function, ::Type{T}=eltype(rfn(r,1)))
     N = m*n
     N == 0 && return spzeros(T,m,n)
@@ -433,7 +444,7 @@ function sprand{T}(r::AbstractRNG, m::Integer, n::Integer, density::FloatingPoin
     sparse_IJ_sorted!(I, J, rfn(r,length(I)), m, n, AddFun())  # it will never need to combine
 end
 
-function sprand{T}(m::Integer, n::Integer, density::FloatingPoint,
+function sprand{T}(m::Integer, n::Integer, density::AbstractFloat,
                 rfn::Function, ::Type{T}=eltype(rfn(1)))
     N = m*n
     N == 0 && return spzeros(T,m,n)
@@ -443,14 +454,14 @@ function sprand{T}(m::Integer, n::Integer, density::FloatingPoint,
     sparse_IJ_sorted!(I, J, rfn(length(I)), m, n, AddFun())  # it will never need to combine
 end
 
-sprand(r::AbstractRNG, m::Integer, n::Integer, density::FloatingPoint) = sprand(r,m,n,density,rand,Float64)
-sprand(m::Integer, n::Integer, density::FloatingPoint) = sprand(GLOBAL_RNG,m,n,density)
-sprandn(r::AbstractRNG, m::Integer, n::Integer, density::FloatingPoint) = sprand(r,m,n,density,randn,Float64)
-sprandn( m::Integer, n::Integer, density::FloatingPoint) = sprandn(GLOBAL_RNG,m,n,density)
+sprand(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat) = sprand(r,m,n,density,rand,Float64)
+sprand(m::Integer, n::Integer, density::AbstractFloat) = sprand(GLOBAL_RNG,m,n,density)
+sprandn(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat) = sprand(r,m,n,density,randn,Float64)
+sprandn( m::Integer, n::Integer, density::AbstractFloat) = sprandn(GLOBAL_RNG,m,n,density)
 
 truebools(r::AbstractRNG, n::Integer) = ones(Bool, n)
-sprandbool(r::AbstractRNG, m::Integer, n::Integer, density::FloatingPoint) = sprand(r,m,n,density,truebools,Bool)
-sprandbool(m::Integer, n::Integer, density::FloatingPoint) = sprandbool(GLOBAL_RNG,m,n,density)
+sprandbool(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat) = sprand(r,m,n,density,truebools,Bool)
+sprandbool(m::Integer, n::Integer, density::AbstractFloat) = sprandbool(GLOBAL_RNG,m,n,density)
 
 spones{T}(S::SparseMatrixCSC{T}) =
      SparseMatrixCSC(S.m, S.n, copy(S.colptr), copy(S.rowval), ones(T, S.colptr[end]-1))
@@ -866,7 +877,7 @@ broadcast_zpreserving{Tv,Ti}(f::Function, A_1::Union{Array,BitArray,Number}, A_2
 
 ## Binary arithmetic and boolean operators
 
-for op in (+, -)
+for op in (+, -, min, max)
     body = gen_broadcast_body_sparse(op, true)
     OP = Symbol(string(op))
     @eval begin
@@ -2836,36 +2847,8 @@ function Base.centralize_sumabs2!{S,Tv,Ti}(R::AbstractArray{S}, A::SparseMatrixC
     return R
 end
 
-## Unitform matrix arithmetic
+## Uniform matrix arithmetic
 
-function (+)(A::SparseMatrixCSC, J::UniformScaling)
-    n = LinAlg.chksquare(A)
-    i, j, nz = findnz(A)
-    for k = 1:n
-        push!(i, k)
-        push!(j, k)
-        push!(nz, J.λ)
-    end
-    return sparse(i, j, nz)
-end
-
-function (-)(A::SparseMatrixCSC, J::UniformScaling)
-    n = LinAlg.chksquare(A)
-    i, j, nz = findnz(A)
-    for k = 1:n
-        push!(i, k)
-        push!(j, k)
-        push!(nz, -J.λ)
-    end
-    return sparse(i, j, nz)
-end
-function (-)(J::UniformScaling, A::SparseMatrixCSC)
-    n = LinAlg.chksquare(A)
-    i, j, nz = findnz(A)
-    for k = 1:n
-        push!(i, k)
-        push!(j, k)
-        push!(nz, -J.λ)
-    end
-    return sparse(i, j, -nz)
-end
+(+)(A::SparseMatrixCSC, J::UniformScaling) = A + J.λ * speye(A)
+(-)(A::SparseMatrixCSC, J::UniformScaling) = A - J.λ * speye(A)
+(-)(J::UniformScaling, A::SparseMatrixCSC) = J.λ * speye(A) - A

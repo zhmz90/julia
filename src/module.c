@@ -28,6 +28,7 @@ jl_module_t *jl_new_module(jl_sym_t *name)
     m->constant_table = NULL;
     m->call_func = NULL;
     m->istopmod = 0;
+    m->std_imports = 0;
     m->uuid = uv_now(uv_default_loop());
     htable_new(&m->bindings, 0);
     arraylist_new(&m->usings, 0);
@@ -92,7 +93,7 @@ DLLEXPORT jl_binding_t *jl_get_binding_wr(jl_module_t *m, jl_sym_t *var)
         else if ((*bp)->owner != m) {
             // TODO: change this to an error soon
             jl_printf(JL_STDERR,
-                       "Warning: imported binding for %s overwritten in module %s\n", var->name, m->name->name);
+                       "WARNING: imported binding for %s overwritten in module %s\n", var->name, m->name->name);
         }
         else {
             return *bp;
@@ -111,7 +112,7 @@ DLLEXPORT jl_module_t *jl_get_module_of_binding(jl_module_t *m, jl_sym_t *var)
 {
     jl_binding_t *b = jl_get_binding(m, var);
     if (b == NULL)
-        jl_undefined_var_error(var);
+        return NULL;
     return b->owner;
 }
 
@@ -120,6 +121,16 @@ DLLEXPORT jl_module_t *jl_get_module_of_binding(jl_module_t *m, jl_sym_t *var)
 // and overwriting.
 DLLEXPORT jl_binding_t *jl_get_binding_for_method_def(jl_module_t *m, jl_sym_t *var)
 {
+    if (jl_base_module && m->std_imports && !jl_binding_resolved_p(m,var)) {
+        jl_module_t *opmod = (jl_module_t*)jl_get_global(jl_base_module, jl_symbol("Operators"));
+        if (opmod != NULL && jl_defines_or_exports_p(opmod, var)) {
+            jl_printf(JL_STDERR,
+                      "WARNING: module %s should explicitly import %s from %s\n",
+                      m->name->name, var->name, jl_base_module->name->name);
+            jl_module_import(m, opmod, var);
+        }
+    }
+
     jl_binding_t **bp = (jl_binding_t**)ptrhash_bp(&m->bindings, var);
     jl_binding_t *b = *bp;
 
@@ -133,6 +144,15 @@ DLLEXPORT jl_binding_t *jl_get_binding_for_method_def(jl_module_t *m, jl_sym_t *
                     jl_errorf("error in method definition: %s.%s cannot be extended", b->owner->name->name, var->name);
                 }
                 else {
+                    if (jl_base_module && m->std_imports && b->owner == jl_base_module) {
+                        jl_module_t *opmod = (jl_module_t*)jl_get_global(jl_base_module, jl_symbol("Operators"));
+                        if (opmod != NULL && jl_defines_or_exports_p(opmod, var)) {
+                            jl_printf(JL_STDERR,
+                                      "WARNING: module %s should explicitly import %s from %s\n",
+                                      m->name->name, var->name, b->owner->name->name);
+                            return b2;
+                        }
+                    }
                     jl_errorf("error in method definition: function %s.%s must be explicitly imported to be extended", b->owner->name->name, var->name);
                 }
             }
@@ -183,7 +203,7 @@ static jl_binding_t *jl_get_binding_(jl_module_t *m, jl_sym_t *var, modstack_t *
                 if (owner != NULL && tempb->owner != b->owner &&
                     !(tempb->constp && tempb->value && b->constp && b->value == tempb->value)) {
                     jl_printf(JL_STDERR,
-                              "Warning: both %s and %s export \"%s\"; uses of it in module %s must be qualified\n",
+                              "WARNING: both %s and %s export \"%s\"; uses of it in module %s must be qualified\n",
                               owner->name->name, imp->name->name, var->name, m->name->name);
                     // mark this binding resolved, to avoid repeating the warning
                     (void)jl_get_binding_wr(m, var);
@@ -258,7 +278,7 @@ static void module_import_(jl_module_t *to, jl_module_t *from, jl_sym_t *s,
     jl_binding_t *b = jl_get_binding(from, s);
     if (b == NULL) {
         jl_printf(JL_STDERR,
-                  "Warning: could not import %s.%s into %s\n",
+                  "WARNING: could not import %s.%s into %s\n",
                   from->name->name, s->name, to->name->name);
     }
     else {
@@ -281,7 +301,7 @@ static void module_import_(jl_module_t *to, jl_module_t *from, jl_sym_t *s,
                     return;
                 }
                 jl_printf(JL_STDERR,
-                          "Warning: ignoring conflicting import of %s.%s into %s\n",
+                          "WARNING: ignoring conflicting import of %s.%s into %s\n",
                           from->name->name, s->name, to->name->name);
             }
             else if (bto->constp || bto->value) {
@@ -292,7 +312,7 @@ static void module_import_(jl_module_t *to, jl_module_t *from, jl_sym_t *s,
                     return;
                 }
                 jl_printf(JL_STDERR,
-                          "Warning: import of %s.%s into %s conflicts with an existing identifier; ignored.\n",
+                          "WARNING: import of %s.%s into %s conflicts with an existing identifier; ignored.\n",
                           from->name->name, s->name, to->name->name);
             }
             else {
@@ -356,7 +376,7 @@ void jl_module_using(jl_module_t *to, jl_module_t *from)
                     var != to->name &&
                     !eq_bindings(jl_get_binding(to,var), b)) {
                     jl_printf(JL_STDERR,
-                              "Warning: using %s.%s in module %s conflicts with an existing identifier.\n",
+                              "WARNING: using %s.%s in module %s conflicts with an existing identifier.\n",
                               from->name->name, var->name, to->name->name);
                 }
             }
@@ -441,7 +461,7 @@ DLLEXPORT void jl_checked_assignment(jl_binding_t *b, jl_value_t *rhs)
                 jl_is_type(rhs) || jl_is_function(rhs) || jl_is_module(rhs)) {
                 jl_errorf("invalid redefinition of constant %s", b->name->name);
             }
-            jl_printf(JL_STDERR,"Warning: redefining constant %s\n",b->name->name);
+            jl_printf(JL_STDERR,"WARNING: redefining constant %s\n",b->name->name);
         }
     }
     b->value = rhs;
@@ -522,7 +542,7 @@ void jl_module_run_initializer(jl_module_t *m)
         jl_apply(f, NULL, 0);
     }
     JL_CATCH {
-        jl_printf(JL_STDERR, "Warning: error initializing module %s:\n", m->name->name);
+        jl_printf(JL_STDERR, "WARNING: error initializing module %s:\n", m->name->name);
         jl_static_show(JL_STDERR, jl_exception_in_transit);
         jl_printf(JL_STDERR, "\n");
     }

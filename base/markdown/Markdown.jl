@@ -2,7 +2,7 @@
 
 module Markdown
 
-import Base: writemime
+import Base: writemime, ==
 
 typealias String AbstractString
 
@@ -18,6 +18,7 @@ include("Julia/Julia.jl")
 include("render/plain.jl")
 include("render/html.jl")
 include("render/latex.jl")
+include("render/rst.jl")
 
 include("render/terminal/render.jl")
 

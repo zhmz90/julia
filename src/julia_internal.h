@@ -11,6 +11,8 @@ extern "C" {
 #endif
 
 extern size_t jl_page_size;
+extern char *jl_stack_lo;
+extern char *jl_stack_hi;
 extern jl_function_t *jl_typeinf_func;
 
 STATIC_INLINE jl_value_t *newobj(jl_value_t *type, size_t nfields)
@@ -43,11 +45,17 @@ STATIC_INLINE jl_value_t *newstruct(jl_datatype_t *type)
 // MSVC miscalculates sizeof(jl_taggedvalue_t) because
 // empty structs are a GNU extension
 #define sizeof_jl_taggedvalue_t (sizeof(void*))
+void jl_gc_inhibit_finalizers(int state);
 
 #ifdef GC_DEBUG_ENV
 void gc_debug_print_status();
 #else
 #define gc_debug_print_status()
+#endif
+#if defined(GC_FINAL_STATS)
+void jl_print_gc_stats(JL_STREAM *s);
+#else
+#define jl_print_gc_stats(s) ((void)s)
 #endif
 int jl_assign_type_uid(void);
 jl_value_t *jl_cache_type_(jl_datatype_t *type);
@@ -69,6 +77,7 @@ JL_CALLABLE(jl_f_no_function);
 JL_CALLABLE(jl_f_tuple);
 extern jl_function_t *jl_unprotect_stack_func;
 extern jl_function_t *jl_bottom_func;
+void jl_install_default_signal_handlers(void);
 
 extern jl_datatype_t *jl_box_type;
 extern jl_value_t *jl_box_any_type;
@@ -100,13 +109,14 @@ jl_datatype_t *jl_inst_concrete_tupletype_v(jl_value_t **p, size_t np);
 jl_datatype_t *jl_inst_concrete_tupletype(jl_svec_t *p);
 
 void jl_set_datatype_super(jl_datatype_t *tt, jl_value_t *super);
-void jl_initialize_generic_function(jl_function_t *f, jl_sym_t *name);
 void jl_add_constructors(jl_datatype_t *t);
 
 jl_value_t *jl_nth_slot_type(jl_tupletype_t *sig, size_t i);
 void jl_compute_field_offsets(jl_datatype_t *st);
 jl_array_t *jl_new_array_for_deserialization(jl_value_t *atype, uint32_t ndims, size_t *dims,
                                              int isunboxed, int elsz);
+extern jl_array_t *jl_module_init_order;
+
 #ifdef JL_USE_INTEL_JITEVENTS
 extern char jl_using_intel_jitevents;
 #endif
@@ -166,6 +176,23 @@ DLLEXPORT void jl_raise_debugger(void);
 #ifdef _OS_DARWIN_
 DLLEXPORT void attach_exception_port(void);
 #endif
+// Set *name and *filename to either NULL or malloc'd string
+void jl_getFunctionInfo(char **name, size_t *line, char **filename,
+                        uintptr_t pointer, int *fromC, int skipC);
+
+// *to is NULL or malloc'd pointer, from is allowed to be NULL
+static inline char *jl_copy_str(char **to, const char *from)
+{
+    if (!from) {
+        free(*to);
+        *to = NULL;
+        return NULL;
+    }
+    size_t len = strlen(from) + 1;
+    *to = (char*)realloc(*to, len);
+    memcpy(*to, from, len);
+    return *to;
+}
 
 // timers
 // Returns time in nanosec
@@ -181,8 +208,6 @@ extern uv_lib_t *jl_kernel32_handle;
 extern uv_lib_t *jl_crtdll_handle;
 extern uv_lib_t *jl_winsock_handle;
 #endif
-
-DLLEXPORT void jl_atexit_hook();
 
 #if defined(_CPU_X86_) || defined(_CPU_X86_64_)
 #define HAVE_CPUID

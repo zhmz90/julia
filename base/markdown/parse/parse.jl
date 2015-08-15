@@ -29,16 +29,16 @@ Base.isempty(md::MD) = isempty(md.content)
 
 ==(a::MD, b::MD) = (html(a) == html(b))
 
-# Parser functions:
-#   md – should be modified appropriately
-#   return – basically, true if parse was successful
-#     false uses the next parser in the queue, true
-#     goes back to the beginning
-# 
-# Inner parsers:
-#   return – element to use or nothing
+# Parser functions:
+#   md – should be modified appropriately
+#   return – basically, true if parse was successful
+#     false uses the next parser in the queue, true
+#     goes back to the beginning
+#
+# Inner parsers:
+#   return – element to use or nothing
 
-# Inner parsing
+# Inner parsing
 
 function parseinline(stream::IO, md::MD, parsers::Vector{Function})
     for parser in parsers
@@ -53,7 +53,7 @@ function parseinline(stream::IO, md::MD, config::Config)
     while !eof(stream)
         char = peek(stream)
         if haskey(config.inner, char) &&
-                (inner = parseinline(stream, md, config.inner[char])) != nothing
+                (inner = parseinline(stream, md, config.inner[char])) !== nothing
             c = takebuf_string(buffer)
             !isempty(c) && push!(content, c)
             buffer = IOBuffer()

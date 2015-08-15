@@ -44,7 +44,66 @@ issym{T<:Real,S}(A::Hermitian{T,S}) = true
 issym{T<:Complex,S}(A::Hermitian{T,S}) = all(imag(A.data) .== 0)
 issym(A::Symmetric) = true
 transpose(A::Symmetric) = A
+ctranspose{T<:Real}(A::Symmetric{T}) = A
+function ctranspose(A::Symmetric)
+    AC = ctranspose(A.data)
+    return Symmetric(AC, ifelse(A.uplo == 'U', :L, :U))
+end
+function transpose(A::Hermitian)
+    AT = transpose(A.data)
+    return Hermitian(AT, ifelse(A.uplo == 'U', :L, :U))
+end
 ctranspose(A::Hermitian) = A
+trace(A::Hermitian) = real(trace(A.data))
+
+#tril/triu
+function tril(A::Hermitian, k::Integer=0)
+    if A.uplo == 'U' && k <= 0
+        return tril!(A.data',k)
+    elseif A.uplo == 'U' && k > 0
+        return tril!(A.data',-1) + tril!(triu(A.data),k)
+    elseif A.uplo == 'L' && k <= 0
+        return tril(A.data,k)
+    else
+        return tril(A.data,-1) + tril!(triu!(A.data'),k)
+    end
+end
+
+function tril(A::Symmetric, k::Integer=0)
+    if A.uplo == 'U' && k <= 0
+        return tril!(A.data.',k)
+    elseif A.uplo == 'U' && k > 0
+        return tril!(A.data.',-1) + tril!(triu(A.data),k)
+    elseif A.uplo == 'L' && k <= 0
+        return tril(A.data,k)
+    else
+        return tril(A.data,-1) + tril!(triu!(A.data.'),k)
+    end
+end
+
+function triu(A::Hermitian, k::Integer=0)
+    if A.uplo == 'U' && k >= 0
+        return triu(A.data,k)
+    elseif A.uplo == 'U' && k < 0
+        return triu(A.data,1) + triu!(tril!(A.data'),k)
+    elseif A.uplo == 'L' && k >= 0
+        return triu!(A.data',k)
+    else
+        return triu!(A.data',1) + triu!(tril(A.data),k)
+    end
+end
+
+function triu(A::Symmetric, k::Integer=0)
+    if A.uplo == 'U' && k >= 0
+        return triu(A.data,k)
+    elseif A.uplo == 'U' && k < 0
+        return triu(A.data,1) + triu!(tril!(A.data.'),k)
+    elseif A.uplo == 'L' && k >= 0
+        return triu!(A.data.',k)
+    else
+        return triu!(A.data.',1) + triu!(tril(A.data),k)
+    end
+end
 
 ## Matvec
 A_mul_B!{T<:BlasFloat,S<:StridedMatrix}(y::StridedVector{T}, A::Symmetric{T,S}, x::StridedVector{T}) = BLAS.symv!(A.uplo, one(T), A.data, x, zero(T), y)
@@ -74,6 +133,11 @@ eigfact{T1<:Real,T2}(A::RealHermSymComplexHerm{T1,T2}, irange::UnitRange) = (T =
 eigfact!{T<:BlasReal,S<:StridedMatrix}(A::RealHermSymComplexHerm{T,S}, vl::Real, vh::Real) = Eigen(LAPACK.syevr!('V', 'V', A.uplo, A.data, convert(T, vl), convert(T, vh), 0, 0, -1.0)...)
 # Because of #6721 it is necessary to specify the parameters explicitly here.
 eigfact{T1<:Real,T2}(A::RealHermSymComplexHerm{T1,T2}, vl::Real, vh::Real) = (T = eltype(A); S = promote_type(Float32, typeof(zero(T)/norm(one(T)))); eigfact!(S != T ? convert(AbstractMatrix{S}, A) : copy(A), vl, vh))
+
+function eig{T<:Real,S}(A::Union{Hermitian{T,S}, Symmetric{T,S}, Hermitian{Complex{T},S}}, args...)
+    F = eigfact(A, args...)
+    return F.values, F.vectors
+end
 
 eigvals!{T<:BlasReal,S<:StridedMatrix}(A::RealHermSymComplexHerm{T,S}) = LAPACK.syevr!('N', 'A', A.uplo, A.data, 0.0, 0.0, 0, 0, -1.0)[1]
 # Because of #6721 it is necessary to specify the parameters explicitly here.
@@ -111,9 +175,57 @@ function svdvals!{T<:Real,S}(A::Union{Hermitian{T,S}, Symmetric{T,S}, Hermitian{
 end
 
 #Matrix-valued functions
-expm{T<:Real}(A::RealHermSymComplexHerm{T}) = (F = eigfact(A); F.vectors*Diagonal(exp(F.values))*F.vectors')
-function sqrtm{T<:Real}(A::RealHermSymComplexHerm{T})
-    F = eigfact(A)
-    isposdef(F) && return F.vectors*Diagonal(sqrt(F.values))*F.vectors'
-    return F.vectors*Diagonal(sqrt(complex(F.values)))*F.vectors'
+function expm(A::Symmetric)
+    F = eigfact(full(A))
+    return Symmetric((F.vectors * Diagonal(exp(F.values))) * F.vectors')
+end
+function expm{T}(A::Hermitian{T})
+    n = chksquare(A)
+    F = eigfact(full(A))
+    retmat = (F.vectors * Diagonal(exp(F.values))) * F.vectors'
+    if T <: Real
+        return real(Hermitian(retmat))
+    else
+        for i = 1:n
+            retmat[i,i] = real(retmat[i,i])
+        end
+        return Hermitian(retmat)
+    end
+end
+
+for (funm, func) in ([:logm,:log], [:sqrtm,:sqrt])
+
+    @eval begin
+
+        function ($funm)(A::Symmetric)
+            F = eigfact(full(A))
+            if isposdef(F)
+                retmat = (F.vectors * Diagonal(($func)(F.values))) * F.vectors'
+            else
+                retmat = (F.vectors * Diagonal(($func)(complex(F.values)))) * F.vectors'
+            end
+            return Symmetric(retmat)
+        end
+
+        function ($funm){T}(A::Hermitian{T})
+            n = chksquare(A)
+            F = eigfact(A)
+            if isposdef(F)
+                retmat = (F.vectors * Diagonal(($func)(F.values))) * F.vectors'
+                if T <: Real
+                    return Hermitian(retmat)
+                else
+                    for i = 1:n
+                        retmat[i,i] = real(retmat[i,i])
+                    end
+                    return Hermitian(retmat)
+                end
+            else
+                retmat = (F.vectors * Diagonal(($func)(complex(F.values)))) * F.vectors'
+                return retmat
+            end
+        end
+
+    end
+
 end

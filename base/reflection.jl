@@ -31,14 +31,22 @@ names(m::Module, all::Bool, imported::Bool) = sort!(ccall(:jl_module_names, Arra
 names(m::Module, all::Bool) = names(m, all, false)
 names(m::Module) = names(m, false, false)
 
-binding_module(var::Symbol) = binding_module(current_module(), var)
-function binding_module(m::Module, var::Symbol)
-    if isdefined(m, var) # this returns true for 'used' bindings
-        mod = ccall(:jl_get_module_of_binding, Any, (Any, Any), m, var)
-    else
-        error("\"$var\" is not bound in module $m")
+function isbindingresolved(m::Module, var::Symbol)
+    ccall(:jl_binding_resolved_p, Cint, (Any, Any), m, var) != 0
+end
+
+binding_module(s::Symbol) = binding_module(current_module(), s)
+function binding_module(m::Module, s::Symbol)
+    p = ccall(:jl_get_module_of_binding, Ptr{Void}, (Any, Any), m, s)
+    p == C_NULL && return m
+    return unsafe_pointer_to_objref(p)::Module
+end
+
+function resolve(g::GlobalRef; force::Bool=false)
+    if force || isbindingresolved(g.mod, g.name)
+        return GlobalRef(binding_module(g.mod, g.name), g.name)
     end
-    mod
+    return g
 end
 
 fieldnames(t::DataType) = Symbol[n for n in t.name.names ]
@@ -225,11 +233,21 @@ code_native(f::ANY, types::ANY) = code_native(STDOUT, f, types)
 code_native(io::IO, f::ANY, t::ANY) =
     code_native(io, call, tt_cons(isa(f, Type) ? Type{f} : typeof(f), t))
 
+# give a decent error message if we try to instantiate a staged function on non-leaf types
+function func_for_method_checked(m, types)
+    linfo = Core.Inference.func_for_method(m[3],types,m[2])
+    if linfo === Core.Inference.NF
+        error("cannot call @generated function `", m[3], "` ",
+              "with abstract argument types: ", types)
+    end
+    linfo::LambdaStaticData
+end
+
 function code_typed(f::Function, types::ANY; optimize=true)
     types = to_tuple_type(types)
     asts = []
     for x in _methods(f,types,-1)
-        linfo = Core.Inference.func_for_method(x[3],types,x[2])
+        linfo = func_for_method_checked(x, types)
         if optimize
             (tree, ty) = Core.Inference.typeinf(linfo, x[1], x[2], linfo,
                                                 true, true)
@@ -255,7 +273,7 @@ function return_types(f::Function, types::ANY)
     types = to_tuple_type(types)
     rt = []
     for x in _methods(f,types,-1)
-        linfo = Core.Inference.func_for_method(x[3],types,x[2])
+        linfo = func_for_method_checked(x,types)
         (tree, ty) = Core.Inference.typeinf(linfo, x[1], x[2])
         push!(rt, ty)
     end
@@ -288,7 +306,14 @@ function which(f::ANY, t::ANY)
     end
 end
 
-which(s::Symbol) = binding_module(current_module(), s)
+which(s::Symbol) = which_module(current_module(), s)
+# TODO: making this a method of which() causes a strange error
+function which_module(m::Module, s::Symbol)
+    if !isdefined(m, s)
+        error("\"$s\" is not defined in module $m")
+    end
+    binding_module(m, s)
+end
 
 function functionloc(m::Method)
     lsd = m.func.code::LambdaStaticData

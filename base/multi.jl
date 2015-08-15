@@ -16,25 +16,65 @@
 # * dynamically adding nodes (then always start with 1 and grow)
 
 ## workers and message i/o ##
+# Messages
+abstract AbstractMsg
 
-function send_msg_unknown(s::IO, kind, args)
+type CallMsg{Mode} <: AbstractMsg
+    f::Function
+    args::Tuple
+    response_oid::Tuple
+end
+type CallWaitMsg <: AbstractMsg
+    f::Function
+    args::Tuple
+    response_oid::Tuple
+    notify_oid::Tuple
+end
+type RemoteDoMsg <: AbstractMsg
+    f::Function
+    args::Tuple
+end
+type ResultMsg <: AbstractMsg
+    response_oid::Tuple
+    value::Any
+end
+
+# Worker initialization messages
+type IdentifySocketMsg <: AbstractMsg
+    from_pid::Int
+end
+type JoinPGRPMsg <: AbstractMsg
+    self_pid::Int
+    other_workers::Array
+    self_is_local::Bool
+    notify_oid::Tuple
+    topology::Symbol
+end
+type JoinCompleteMsg <: AbstractMsg
+    notify_oid::Tuple
+    cpu_cores::Int
+    ospid::Int
+end
+
+
+function send_msg_unknown(s::IO, msg)
     error("attempt to send to unknown socket")
 end
 
-function send_msg(s::IO, kind, args...)
+function send_msg(s::IO, msg)
     id = worker_id_from_socket(s)
     if id > -1
-        return send_msg(worker_from_id(id), kind, args...)
+        return send_msg(worker_from_id(id), msg)
     end
-    send_msg_unknown(s, kind, args)
+    send_msg_unknown(s, msg)
 end
 
-function send_msg_now(s::IO, kind, args...)
+function send_msg_now(s::IO, msg::AbstractMsg)
     id = worker_id_from_socket(s)
     if id > -1
-        return send_msg_now(worker_from_id(id), kind, args...)
+        return send_msg_now(worker_from_id(id), msg)
     end
-    send_msg_unknown(s, kind, args)
+    send_msg_unknown(s, msg)
 end
 
 abstract ClusterManager
@@ -68,6 +108,11 @@ type WorkerConfig
 
     # Private dictionary used to store temporary information by Local/SSH managers.
     environ::Nullable{Dict}
+
+    # Connections to be setup depending on the network topology requested
+    ident::Nullable{Any}      # Worker as identified by the Cluster Manager.
+    # List of other worker idents this worker must connect with. Used with topology T_CUSTOM.
+    connect_idents::Nullable{Array}
 
     function WorkerConfig()
         wc = new()
@@ -124,12 +169,12 @@ function set_worker_state(w, state)
     notify(w.c_state; all=true)
 end
 
-function send_msg_now(w::Worker, kind, args...)
-    send_msg_(w, kind, args, true)
+function send_msg_now(w::Worker, msg)
+    send_msg_(w, msg, true)
 end
 
-function send_msg(w::Worker, kind, args...)
-    send_msg_(w, kind, args, false)
+function send_msg(w::Worker, msg)
+    send_msg_(w, msg, false)
 end
 
 function flush_gc_msgs(w::Worker)
@@ -152,29 +197,29 @@ function flush_gc_msgs(w::Worker)
 end
 
 function check_worker_state(w::Worker)
-    #println("Sending msg $kind")
     if w.state == W_CREATED
-        # Since higher pids connect with lower pids, the remote worker
-        # may not have connected to us yet. Wait for some time.
-        timeout =  worker_timeout() - (time() - w.ct_time)
-        timeout <= 0 && error("peer $(w.id) has not connected to $(myid())")
+        if PGRP.topology == :all_to_all
+            # Since higher pids connect with lower pids, the remote worker
+            # may not have connected to us yet. Wait for some time.
+            timeout =  worker_timeout() - (time() - w.ct_time)
+            timeout <= 0 && error("peer $(w.id) has not connected to $(myid())")
 
-        @schedule (sleep(timeout); notify(w.c_state; all=true))
-        wait(w.c_state)
-        w.state == W_CREATED && error("peer $(w.id) didn't connect to $(myid()) within $timeout seconds")
+            @schedule (sleep(timeout); notify(w.c_state; all=true))
+            wait(w.c_state)
+            w.state == W_CREATED && error("peer $(w.id) didn't connect to $(myid()) within $timeout seconds")
+        else
+            error("peer $(w.id) is not connected to $(myid()). Topology : " * string(PGRP.topology))
+        end
     end
 end
 
 
-function send_msg_(w::Worker, kind, args, now::Bool)
+function send_msg_(w::Worker, msg, now::Bool)
     check_worker_state(w)
     io = w.w_stream
     lock(io.lock)
     try
-        serialize(io, kind)
-        for arg in args
-            serialize(io, arg)
-        end
+        serialize(io, msg)
 
         if !now && w.gcflag
             flush_gc_msgs(w)
@@ -226,13 +271,22 @@ end
 type ProcessGroup
     name::AbstractString
     workers::Array{Any,1}
+    refs::Dict                  # global references
+    topology::Symbol
 
-    # global references
-    refs::Dict
-
-    ProcessGroup(w::Array{Any,1}) = new("pg-default", w, Dict())
+    ProcessGroup(w::Array{Any,1}) = new("pg-default", w, Dict(), :all_to_all)
 end
 const PGRP = ProcessGroup([])
+
+function topology(t)
+    assert(t in [:all_to_all, :master_slave, :custom])
+    if (PGRP.topology==t) || ((myid()==1) && (nprocs()==1)) || (myid() > 1)
+        PGRP.topology = t
+    else
+        error("Workers with Topology $(PGRP.topology) already exist. Requested Topology $(t) cannot be set.")
+    end
+    t
+end
 
 get_bind_addr(pid::Integer) = get_bind_addr(worker_from_id(pid))
 get_bind_addr(w::LocalProcess) = LPROC.bind_addr
@@ -358,14 +412,24 @@ function deregister_worker(pg, pid)
     pg.workers = filter(x -> !(x.id == pid), pg.workers)
     w = pop!(map_pid_wrkr, pid, nothing)
     if isa(w, Worker)
-        pop!(map_sock_wrkr, w.r_stream)
-        if w.r_stream != w.w_stream
-            pop!(map_sock_wrkr, w.w_stream)
+        if isdefined(w, :r_stream)
+            pop!(map_sock_wrkr, w.r_stream, nothing)
+            if w.r_stream != w.w_stream
+                pop!(map_sock_wrkr, w.w_stream, nothing)
+            end
         end
 
-        # Notify the cluster manager of this workers death
         if myid() == 1
+            # Notify the cluster manager of this workers death
             manage(w.manager, w.id, w.config, :deregister)
+            if PGRP.topology != :all_to_all
+                for rpid in workers()
+                    try
+                        remote_do(rpid, deregister_worker, pid)
+                    catch
+                    end
+                end
+            end
         end
     end
     push!(map_del_wrkr, pid)
@@ -387,7 +451,7 @@ function deregister_worker(pg, pid)
 
     # throw exception to tasks waiting for this pid
     for (id,rv) in tonotify
-        notify_error(rv.full, ProcessExitedException())
+        notify_error(rv.c, ProcessExitedException())
         delete!(pg.refs, id)
     end
 end
@@ -396,7 +460,7 @@ end
 
 const client_refs = WeakKeyDict()
 
-type RemoteRef
+type RemoteRef{RemoteStore}
     where::Int
     whence::Int
     id::Int
@@ -412,20 +476,25 @@ type RemoteRef
         finalizer(r, send_del_client)
         r
     end
+end
 
-    REQ_ID::Int = 0
-    function RemoteRef(pid::Integer)
-        rr = RemoteRef(pid, myid(), REQ_ID)
-        REQ_ID += 1
-        rr
-    end
+let REF_ID::Int = 1
+    global next_ref_id
+    next_ref_id() = (id = REF_ID; REF_ID += 1; id)
 
-    RemoteRef(w::LocalProcess) = RemoteRef(w.id)
-    RemoteRef(w::Worker) = RemoteRef(w.id)
-    RemoteRef() = RemoteRef(myid())
+    global next_rrid_tuple
+    next_rrid_tuple() = (myid(),next_ref_id())
+end
 
-    global next_id
-    next_id() = (id=(myid(),REQ_ID); REQ_ID+=1; id)
+RemoteRef(w::LocalProcess) = RemoteRef(w.id)
+RemoteRef(w::Worker) = RemoteRef(w.id)
+RemoteRef(pid::Integer=myid()) = RemoteRef(def_rv_channel, pid)
+
+function RemoteRef(f::Function, pid::Integer=myid())
+    remotecall_fetch(pid, (f, rrid) -> begin
+        rv=lookup_ref(rrid, f)
+        RemoteRef{typeof(rv.c)}(myid(), rrid[1], rrid[2])
+    end, f, next_rrid_tuple())
 end
 
 hash(r::RemoteRef, h::UInt) = hash(r.whence, hash(r.id, h))
@@ -433,24 +502,24 @@ hash(r::RemoteRef, h::UInt) = hash(r.whence, hash(r.id, h))
 
 rr2id(r::RemoteRef) = (r.whence, r.id)
 
-lookup_ref(id) = lookup_ref(PGRP, id)
-function lookup_ref(pg, id)
+lookup_ref(id, f=def_rv_channel) = lookup_ref(PGRP, id, f)
+function lookup_ref(pg, id, f)
     rv = get(pg.refs, id, false)
     if rv === false
         # first we've heard of this ref
-        rv = RemoteValue()
+        rv = RemoteValue(f)
         pg.refs[id] = rv
         push!(rv.clientset, id[1])
     end
     rv
 end
 
-function isready(rr::RemoteRef)
+function isready(rr::RemoteRef, args...)
     rid = rr2id(rr)
     if rr.where == myid()
-        lookup_ref(rid).done
+        isready(lookup_ref(rid).c, args...)
     else
-        remotecall_fetch(rr.where, id->lookup_ref(id).done, rid)
+        remotecall_fetch(rr.where, id->isready(lookup_ref(rid).c, args...), rid)
     end
 end
 
@@ -543,59 +612,48 @@ function deserialize(s::SerializationState, t::Type{RemoteRef})
 end
 
 # data stored by the owner of a RemoteRef
+def_rv_channel() = Channel(1)
 type RemoteValue
-    done::Bool
-    result
-    full::Condition   # waiting for a value
-    empty::Condition  # waiting for value to be removed
+    c::AbstractChannel
     clientset::IntSet
     waitingfor::Int   # processor we need to hear from to fill this, or 0
 
-    RemoteValue() = new(false, nothing, Condition(), Condition(), IntSet(), 0)
+    RemoteValue(f::Function) = new(f(), IntSet(), 0)
 end
 
-function work_result(rv::RemoteValue)
-    v = rv.result
-    if isa(v,WeakRef)
-        v = v.value
-    end
-    v
-end
-
-function wait_full(rv::RemoteValue)
-    while !rv.done
-        wait(rv.full)
-    end
-    return work_result(rv)
-end
-
-function wait_empty(rv::RemoteValue)
-    while rv.done
-        wait(rv.empty)
-    end
-    return nothing
-end
+wait(rv::RemoteValue) = wait(rv.c)
 
 ## core messages: do, call, fetch, wait, ref, put! ##
+type RemoteException <: Exception
+    pid::Int
+    captured::CapturedException
+end
 
-function run_work_thunk(thunk)
+RemoteException(captured) = RemoteException(myid(), captured)
+function show(io::IO, re::RemoteException)
+    (re.pid != myid()) && print(io, "On worker ", re.pid, ":\n")
+    show(io, re.captured)
+end
+
+
+function run_work_thunk(thunk, print_error)
     local result
     try
         result = thunk()
     catch err
-        print(STDERR, "exception on ", myid(), ": ")
-        display_error(err,catch_backtrace())
-        result = err
+        ce = CapturedException(err, catch_backtrace())
+        result = RemoteException(ce)
+        print_error && print(STDERR, ce)
     end
     result
 end
 function run_work_thunk(rv::RemoteValue, thunk)
-    put!(rv, run_work_thunk(thunk))
+    put!(rv, run_work_thunk(thunk, false))
     nothing
 end
 
 function schedule_call(rid, thunk)
-    rv = RemoteValue()
+    rv = RemoteValue(def_rv_channel)
     (PGRP::ProcessGroup).refs[rid] = rv
     push!(rv.clientset, rid[1])
     schedule(@task(run_work_thunk(rv,thunk)))
@@ -646,7 +704,7 @@ end
 function remotecall(w::Worker, f, args...)
     rr = RemoteRef(w)
     #println("$(myid()) asking for $rr")
-    send_msg(w, :call, rr2id(rr), f, args)
+    send_msg(w, CallMsg{:call}(f, args, rr2id(rr)))
     rr
 end
 
@@ -654,19 +712,20 @@ remotecall(id::Integer, f, args...) = remotecall(worker_from_id(id), f, args...)
 
 # faster version of fetch(remotecall(...))
 function remotecall_fetch(w::LocalProcess, f, args...)
-    run_work_thunk(local_remotecall_thunk(f,args))
+    v=run_work_thunk(local_remotecall_thunk(f,args), false)
+    isa(v, RemoteException) ? throw(v) : v
 end
 
 function remotecall_fetch(w::Worker, f, args...)
     # can be weak, because the program will have no way to refer to the Ref
     # itself, it only gets the result.
-    oid = next_id()
+    oid = next_rrid_tuple()
     rv = lookup_ref(oid)
     rv.waitingfor = w.id
-    send_msg(w, :call_fetch, oid, f, args)
-    v = wait_full(rv)
+    send_msg(w, CallMsg{:call_fetch}(f, args, oid))
+    v = take!(rv)
     delete!(PGRP.refs, oid)
-    v
+    isa(v, RemoteException) ? throw(v) : v
 end
 
 remotecall_fetch(id::Integer, f, args...) =
@@ -676,12 +735,12 @@ remotecall_fetch(id::Integer, f, args...) =
 remotecall_wait(w::LocalProcess, f, args...) = wait(remotecall(w,f,args...))
 
 function remotecall_wait(w::Worker, f, args...)
-    prid = next_id()
+    prid = next_rrid_tuple()
     rv = lookup_ref(prid)
     rv.waitingfor = w.id
     rr = RemoteRef(w)
-    send_msg(w, :call_wait, rr2id(rr), prid, f, args)
-    wait_full(rv)
+    send_msg(w, CallWaitMsg(f, args, rr2id(rr), prid))
+    wait(rv)
     delete!(PGRP.refs, prid)
     rr
 end
@@ -699,7 +758,7 @@ function remote_do(w::LocalProcess, f, args...)
 end
 
 function remote_do(w::Worker, f, args...)
-    send_msg(w, :do, f, args)
+    send_msg(w, RemoteDoMsg(f, args))
     nothing
 end
 
@@ -715,36 +774,25 @@ function call_on_owner(f, rr::RemoteRef, args...)
     end
 end
 
-wait_ref(rid) = (wait_full(lookup_ref(rid)); nothing)
-wait(r::RemoteRef) = (call_on_owner(wait_ref, r); r)
+wait_ref(rid, args...) = (wait(lookup_ref(rid).c, args...); nothing)
+wait(r::RemoteRef, args...) = (call_on_owner(wait_ref, r, args...); r)
 
-fetch_ref(rid) = wait_full(lookup_ref(rid))
-fetch(r::RemoteRef) = call_on_owner(fetch_ref, r)
+fetch_ref(rid, args...) = fetch(lookup_ref(rid).c, args...)
+fetch(r::RemoteRef, args...) = call_on_owner(fetch_ref, r, args...)
 fetch(x::ANY) = x
 
 # storing a value to a RemoteRef
-function put!(rv::RemoteValue, val::ANY)
-    wait_empty(rv)
-    rv.result = val
-    rv.done = true
-    notify_full(rv)
-    rv
-end
+put!(rv::RemoteValue, args...) = put!(rv.c, args...)
+put_ref(rid, args...) = put!(lookup_ref(rid), args...)
+put!(rr::RemoteRef, args...) = (call_on_owner(put_ref, rr, args...); rr)
 
-put_ref(rid, v) = put!(lookup_ref(rid), v)
-put!(rr::RemoteRef, val::ANY) = (call_on_owner(put_ref, rr, val); rr)
+take!(rv::RemoteValue, args...) = take!(rv.c, args...)
+take_ref(rid, args...) = take!(lookup_ref(rid), args...)
+take!(rr::RemoteRef, args...) = call_on_owner(take_ref, rr, args...)
 
-function take!(rv::RemoteValue)
-    wait_full(rv)
-    val = rv.result
-    rv.done = false
-    rv.result = nothing
-    notify_empty(rv)
-    val
-end
+close_ref(rid) = (close(lookup_ref(rid).c); nothing)
+close(rr::RemoteRef) = call_on_owner(close_ref, rr)
 
-take_ref(rid) = take!(lookup_ref(rid))
-take!(rr::RemoteRef) = call_on_owner(take_ref, rr)
 
 function deliver_result(sock::IO, msg, oid, value)
     #print("$(myid()) sending result $oid\n")
@@ -754,7 +802,7 @@ function deliver_result(sock::IO, msg, oid, value)
         val = oid
     end
     try
-        send_msg_now(sock, :result, oid, val)
+        send_msg_now(sock, ResultMsg(oid, val))
     catch e
         # terminate connection in case of serialization error
         # otherwise the reading end would hang
@@ -772,126 +820,31 @@ function deliver_result(sock::IO, msg, oid, value)
     end
 end
 
-# notify waiters that a certain job has finished or RemoteRef has been emptied
-notify_full( rv::RemoteValue) = notify(rv.full, work_result(rv))
-notify_empty(rv::RemoteValue) = notify(rv.empty)
-
 ## message event handlers ##
+process_messages(r_stream::TCPSocket, w_stream::TCPSocket) = @schedule process_tcp_streams(r_stream, w_stream)
 
-process_messages(r_stream::TCPSocket, w_stream::TCPSocket) = process_messages(r_stream, w_stream, nothing)
-process_messages(r_stream::TCPSocket, w_stream::TCPSocket, rr_ntfy_join) = @schedule process_tcp_streams(r_stream, w_stream, rr_ntfy_join)
-
-function process_tcp_streams(r_stream::TCPSocket, w_stream::TCPSocket, rr_ntfy_join)
+function process_tcp_streams(r_stream::TCPSocket, w_stream::TCPSocket)
         disable_nagle(r_stream)
         wait_connected(r_stream)
         if r_stream != w_stream
             disable_nagle(w_stream)
             wait_connected(w_stream)
         end
-        message_handler_loop(r_stream, w_stream, rr_ntfy_join)
+        message_handler_loop(r_stream, w_stream)
 end
 
-process_messages(r_stream::AsyncStream, w_stream::AsyncStream) = process_messages(r_stream, w_stream, nothing)
-process_messages(r_stream::AsyncStream, w_stream::AsyncStream, rr_ntfy_join) = @schedule message_handler_loop(r_stream, w_stream, rr_ntfy_join)
+process_messages(r_stream::AsyncStream, w_stream::AsyncStream) = @schedule message_handler_loop(r_stream, w_stream)
 
-function message_handler_loop(r_stream::AsyncStream, w_stream::AsyncStream, rr_ntfy_join)
+function message_handler_loop(r_stream::AsyncStream, w_stream::AsyncStream)
     global PGRP
     global cluster_manager
 
     try
         while true
             msg = deserialize(r_stream)
-            #println("got msg: ",msg)
-            # handle message
-            if is(msg, :call)
-                id = deserialize(r_stream)
-                #print("$(myid()) got id $id\n")
-                f0 = deserialize(r_stream)
-                #print("$(myid()) got call $f0\n")
-                args0 = deserialize(r_stream)
-                #print("$(myid()) got args $args0\n")
-                let f=f0, args=args0
-                    schedule_call(id, ()->f(args...))
-                end
-            elseif is(msg, :call_fetch)
-                id = deserialize(r_stream)
-                f = deserialize(r_stream)
-                args = deserialize(r_stream)
-                let f=f, args=args, id=id, msg=msg
-                    @schedule begin
-                        v = run_work_thunk(()->f(args...))
-                        deliver_result(w_stream, msg, id, v)
-                        v
-                    end
-                end
-            elseif is(msg, :call_wait)
-                id = deserialize(r_stream)
-                notify_id = deserialize(r_stream)
-                f = deserialize(r_stream)
-                args = deserialize(r_stream)
-                let f=f, args=args, id=id, msg=msg, notify_id=notify_id
-                    @schedule begin
-                        rv = schedule_call(id, ()->f(args...))
-                        deliver_result(w_stream, msg, notify_id, wait_full(rv))
-                    end
-                end
-            elseif is(msg, :do)
-                f = deserialize(r_stream)
-                args = deserialize(r_stream)
-                #print("got args: $args\n")
-                let f=f, args=args
-                    @schedule begin
-                        run_work_thunk(RemoteValue(), ()->f(args...))
-                    end
-                end
-            elseif is(msg, :result)
-                # used to deliver result of wait or fetch
-                oid = deserialize(r_stream)
-                #print("$(myid()) got $msg $oid\n")
-                val = deserialize(r_stream)
-                put!(lookup_ref(oid), val)
-            elseif is(msg, :identify_socket)
-                otherid = deserialize(r_stream)
-                Worker(otherid, r_stream, w_stream, cluster_manager) # The constructor registers the worker
-
-            elseif is(msg, :join_pgrp)
-                self_pid = LPROC.id = deserialize(r_stream)
-                locs = deserialize(r_stream)
-                self_is_local = deserialize(r_stream)
-                controller = Worker(1, r_stream, w_stream, cluster_manager)
-                register_worker(LPROC)
-
-                wait_tasks = Task[]
-
-                for (connect_at, rpid, r_is_local) in locs
-                    wconfig = WorkerConfig()
-                    wconfig.connect_at = connect_at
-                    wconfig.environ = AnyDict(:self_is_local=>self_is_local, :r_is_local=>r_is_local)
-
-                    let rpid=rpid, wconfig=wconfig
-                        t = @async connect_to_peer(cluster_manager, rpid, wconfig)
-                        push!(wait_tasks, t)
-                    end
-                end
-
-                for wt in wait_tasks; wait(wt); end
-
-                send_msg_now(controller, :join_complete, Sys.CPU_CORES, getpid())
-
-            elseif is(msg, :join_complete)
-                w = map_sock_wrkr[r_stream]
-
-                environ = get(w.config.environ, Dict())
-                environ[:cpu_cores] = deserialize(r_stream)
-                w.config.environ = environ
-
-                w.config.ospid = deserialize(r_stream)
-
-                put!(rr_ntfy_join, w.id)
-                rr_ntfy_join = nothing    # so that it gets gc'ed
-            end
-
-        end # end of while
+            # println("got msg: ", msg)
+            handle_msg(msg, r_stream, w_stream)
+        end
     catch e
         iderr = worker_id_from_socket(r_stream)
         if (iderr < 1)
@@ -930,16 +883,72 @@ function message_handler_loop(r_stream::AsyncStream, w_stream::AsyncStream, rr_n
     end
 end
 
+handle_msg(msg::CallMsg{:call}, r_stream, w_stream) = schedule_call(msg.response_oid, ()->msg.f(msg.args...))
+function handle_msg(msg::CallMsg{:call_fetch}, r_stream, w_stream)
+    @schedule begin
+        v = run_work_thunk(()->msg.f(msg.args...), false)
+        deliver_result(w_stream, :call_fetch, msg.response_oid, v)
+    end
+end
+
+function handle_msg(msg::CallWaitMsg, r_stream, w_stream)
+    @schedule begin
+        rv = schedule_call(msg.response_oid, ()->msg.f(msg.args...))
+        deliver_result(w_stream, :call_wait, msg.notify_oid, wait(rv))
+    end
+end
+
+handle_msg(msg::RemoteDoMsg, r_stream, w_stream) = @schedule run_work_thunk(()->msg.f(msg.args...), true)
+
+handle_msg(msg::ResultMsg, r_stream, w_stream) = put!(lookup_ref(msg.response_oid), msg.value)
+
+handle_msg(msg::IdentifySocketMsg, r_stream, w_stream) = Worker(msg.from_pid, r_stream, w_stream, cluster_manager)
+
+function handle_msg(msg::JoinPGRPMsg, r_stream, w_stream)
+    LPROC.id = msg.self_pid
+    controller = Worker(1, r_stream, w_stream, cluster_manager)
+    register_worker(LPROC)
+    topology(msg.topology)
+
+    wait_tasks = Task[]
+    for (connect_at, rpid, r_is_local) in msg.other_workers
+        wconfig = WorkerConfig()
+        wconfig.connect_at = connect_at
+        wconfig.environ = AnyDict(:self_is_local=>msg.self_is_local, :r_is_local=>r_is_local)
+
+        let rpid=rpid, wconfig=wconfig
+            t = @async connect_to_peer(cluster_manager, rpid, wconfig)
+            push!(wait_tasks, t)
+        end
+    end
+
+    for wt in wait_tasks; wait(wt); end
+
+    send_msg_now(controller, JoinCompleteMsg(msg.notify_oid, Sys.CPU_CORES, getpid()))
+end
+
 function connect_to_peer(manager::ClusterManager, rpid::Int, wconfig::WorkerConfig)
     try
         (r_s, w_s) = connect(manager, rpid, wconfig)
         w = Worker(rpid, r_s, w_s, manager, wconfig)
         process_messages(w.r_stream, w.w_stream)
-        send_msg_now(w, :identify_socket, myid())
+        send_msg_now(w, IdentifySocketMsg(myid()))
     catch e
         println(STDERR, "Error [$e] on $(myid()) while connecting to peer $rpid. Exiting.")
         exit(1)
     end
+end
+
+function handle_msg(msg::JoinCompleteMsg, r_stream, w_stream)
+    w = map_sock_wrkr[r_stream]
+
+    environ = get(w.config.environ, Dict())
+    environ[:cpu_cores] = msg.cpu_cores
+    w.config.environ = environ
+    w.config.ospid = msg.ospid
+
+    ntfy_channel = lookup_ref(msg.notify_oid)
+    put!(ntfy_channel, w.id)
 end
 
 function disable_threaded_libs()
@@ -1035,7 +1044,7 @@ end
 
 function parse_connection_info(str)
     m = match(r"^julia_worker:(\d+)#(.*)", str)
-    if m != nothing
+    if m !== nothing
         (m.captures[2], parse(Int16, m.captures[1]))
     else
         ("", Int16(-1))
@@ -1065,7 +1074,9 @@ end
 # for launching the workers. All keyword arguments (plus a few default values)
 # are available as a dictionary to the `launch` methods
 function addprocs(manager::ClusterManager; kwargs...)
+
     params = merge(default_addprocs_params(), AnyDict(kwargs))
+    topology(symbol(params[:topology]))
 
     # some libs by default start as many threads as cores which leads to
     # inefficient use of cores in a multi-process model.
@@ -1120,13 +1131,12 @@ end
 
 function set_valid_processes(plist::Array{Int})
     for pid in setdiff(plist, workers())
-        if myid() != pid
-            Worker(pid)
-        end
+        myid() != pid && Worker(pid)
     end
 end
 
 default_addprocs_params() = AnyDict(
+    :topology => :all_to_all,
     :dir      => pwd(),
     :exename  => joinpath(JULIA_HOME,julia_exename()),
     :exeflags => ``)
@@ -1192,11 +1202,13 @@ function create_worker(manager, wconfig)
     finalizer(w, (w)->if myid() == 1 manage(w.manager, w.id, w.config, :finalize) end)
 
     # set when the new worker has finshed connections with all other workers
-    rr_ntfy_join = RemoteRef()
+    ntfy_oid = next_rrid_tuple()
+    rr_ntfy_join = lookup_ref(ntfy_oid)
+    rr_ntfy_join.waitingfor = myid()
 
     # Start a new task to handle inbound messages from connected worker in master.
     # Also calls `wait_connected` on TCP streams.
-    process_messages(w.r_stream, w.w_stream, rr_ntfy_join)
+    process_messages(w.r_stream, w.w_stream)
 
     # send address information of all workers to the new worker.
     # Cluster managers set the address of each worker in `WorkerConfig.connect_at`.
@@ -1210,25 +1222,41 @@ function create_worker(manager, wconfig)
     #   - each worker then sends a :join_complete back to the master along with its OS_PID and NUM_CORES
     # - once master receives a :join_complete it triggers rr_ntfy_join (signifies that worker setup is complete)
 
-    # need to wait for lower worker pids to have completed connecting, since the numerical value
-    # of pids is relevant to the connection process, i.e., higher pids connect to lower pids and they
-    # require the value of config.connect_at which is set only upon connection completion
+    join_list = []
+    if PGRP.topology == :all_to_all
+        # need to wait for lower worker pids to have completed connecting, since the numerical value
+        # of pids is relevant to the connection process, i.e., higher pids connect to lower pids and they
+        # require the value of config.connect_at which is set only upon connection completion
+        for jw in PGRP.workers
+            if (jw.id != 1) && (jw.id < w.id)
+                (jw.state == W_CREATED) && wait(jw.c_state)
+                push!(join_list, jw)
+            end
+        end
 
-    lower_wlist = filter(x -> (x.id != 1) && (x.id < w.id) && (x.state == W_CREATED), PGRP.workers)
-    for wl in lower_wlist
-        if wl.state == W_CREATED
-            wait(wl.c_state)
+    elseif PGRP.topology == :custom
+        # wait for requested workers to be up before connecting to them.
+        filterfunc(x) = (x.id != 1) && isdefined(x, :config) && (get(x.config.ident) in get(wconfig.connect_idents, []))
+
+        wlist = filter(filterfunc, PGRP.workers)
+        while length(wlist) < length(get(wconfig.connect_idents, []))
+            sleep(1.0)
+            wlist = filter(filterfunc, PGRP.workers)
+        end
+
+        for wl in wlist
+            (wl.state == W_CREATED) && wait(wl.c_state)
+            push!(join_list, wl)
         end
     end
 
-    # filter list to workers in a running state
-    join_list = filter(x -> (x.id != 1) && (x.id < w.id) && (x.state==W_CONNECTED), PGRP.workers)
-
     all_locs = map(x -> isa(x, Worker) ? (get(x.config.connect_at, ()), x.id, isa(x.manager, LocalManager)) : ((), x.id, true), join_list)
-    send_msg_now(w, :join_pgrp, w.id, all_locs, isa(w.manager, LocalManager))
+    send_msg_now(w, JoinPGRPMsg(w.id, all_locs, isa(w.manager, LocalManager), ntfy_oid, PGRP.topology))
 
     @schedule manage(w.manager, w.id, w.config, :register)
     wait(rr_ntfy_join)
+    delete!(PGRP.refs, ntfy_oid)
+
     w.id
 end
 
@@ -1318,7 +1346,7 @@ macro everywhere(ex)
     quote
         @sync begin
             for w in PGRP.workers
-                @async remotecall_fetch(w.id, ()->(eval(Main,$(Expr(:quote,ex))); nothing))
+                @async remotecall_fetch(w, ()->(eval(Main,$(Expr(:quote,ex))); nothing))
             end
         end
     end
@@ -1385,16 +1413,11 @@ function pmap(f, lsts...; err_retry=true, err_stop=false, pids = workers())
         for (pididx, wpid) in enumerate(pids)
             @async begin
                 tasklet = getnext_tasklet()
-                while (tasklet != nothing)
+                while (tasklet !== nothing)
                     (idx, fvals) = tasklet
                     busy_workers[pididx] = true
                     try
-                        result = remotecall_fetch(wpid, f, fvals...)
-                        if isa(result, Exception)
-                            ((wpid == myid()) ? rethrow(result) : throw(result))
-                        else
-                            results[idx] = result
-                        end
+                        results[idx] = remotecall_fetch(wpid, f, fvals...)
                     catch ex
                         if err_retry
                             push!(retryqueue, (idx,fvals, ex))
@@ -1444,12 +1467,15 @@ function splitrange(N::Int, np::Int)
 end
 
 function preduce(reducer, f, N::Int)
-    chunks = splitrange(N, nworkers())
+    w=workers()
+    chunks = splitrange(N, length(w))
     results = cell(length(chunks))
-    for i in 1:length(chunks)
-        results[i] = @spawn f(first(chunks[i]), last(chunks[i]))
+    @sync begin
+        for i in 1:length(chunks)
+            @async results[i] = remotecall_fetch(w[i], f, first(chunks[i]), last(chunks[i]))
+        end
     end
-    mapreduce(fetch, reducer, results)
+    reduce(reducer, results)
 end
 
 function pfor(f, N::Int)
@@ -1629,6 +1655,7 @@ function terminate_all_workers()
     end
 end
 
+getindex(r::RemoteRef) = fetch(r)
 function getindex(r::RemoteRef, args...)
     if r.where == myid()
         return getindex(fetch(r), args...)

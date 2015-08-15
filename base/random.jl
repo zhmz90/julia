@@ -15,7 +15,7 @@ export srand,
        shuffle,shuffle!,
        randperm, randcycle,
        AbstractRNG, RNG, MersenneTwister, RandomDevice,
-       GLOBAL_RNG
+       GLOBAL_RNG, randjump
 
 
 abstract AbstractRNG
@@ -71,8 +71,8 @@ type MersenneTwister <: AbstractRNG
     idx::Int
     seed::Vector{UInt32}
 
-    MersenneTwister(seed) = srand(new(DSFMT_state(), Array(Float64, MTCacheLength)),
-                                  seed)
+    MersenneTwister(state::DSFMT_state, seed) = new(state, Array(Float64, MTCacheLength), MTCacheLength, seed)
+    MersenneTwister(seed) = srand(new(DSFMT_state(), Array(Float64, MTCacheLength)), seed)
     MersenneTwister() = MersenneTwister(0)
 end
 
@@ -114,6 +114,17 @@ function srand(r::MersenneTwister, seed::Vector{UInt32})
     return r
 end
 
+# MersenneTwister jump
+function randjump(mt::MersenneTwister, jumps::Integer, jumppoly::AbstractString)
+    mts = MersenneTwister[]
+    push!(mts, mt)
+    for i in 1:jumps-1
+        cmt = mts[end]
+        push!(mts, MersenneTwister(dSFMT.dsfmt_jump(cmt.state, jumppoly),  cmt.seed))
+    end
+    return mts
+end
+randjump(r::MersenneTwister, jumps::Integer) = randjump(r, jumps, dSFMT.JPOLY1e21)
 
 ## initialization
 
@@ -1166,8 +1177,8 @@ immutable UUID
 end
 UUID(u::AbstractString) = convert(UUID, u)
 
-function uuid4()
-    u = rand(UInt128)
+function uuid4(rng::AbstractRNG=GLOBAL_RNG)
+    u = rand(rng, UInt128)
     u &= 0xffffffffffff0fff3fffffffffffffff
     u |= 0x00000000000040008000000000000000
     UUID(u)

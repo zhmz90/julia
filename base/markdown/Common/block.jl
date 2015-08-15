@@ -1,7 +1,7 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
 # ––––––––––
-# Paragraphs
+# Paragraphs
 # ––––––––––
 
 type Paragraph
@@ -88,7 +88,7 @@ function setextheader(stream::IO, md::MD)
 end
 
 # ––––
-# Code
+# Code
 # ––––
 
 type Code
@@ -117,7 +117,7 @@ function indentcode(stream::IO, block::MD)
 end
 
 # ––––––
-# Quotes
+# Quotes
 # ––––––
 
 type BlockQuote
@@ -145,9 +145,9 @@ function blockquote(stream::IO, block::MD)
     end
 end
 
-# –––––
-# Lists
-# –––––
+# –––––
+# Lists
+# –––––
 
 type List
     items::Vector{Any}
@@ -168,7 +168,7 @@ function list(stream::IO, block::MD)
     withstream(stream) do
         eatindent(stream) || return false
         b = startswith(stream, num_or_bullets)
-        (b == nothing || b == "") && return false
+        (b === nothing || b == "") && return false
         ordered = !(b[1] in bullets)
         if ordered
             b = b[end - 1] == '.' ? r"^\d+\. " : r"^\d+\) "
@@ -210,9 +210,9 @@ function list(stream::IO, block::MD)
     end
 end
 
-# ––––––––––––––
+# ––––––––––––––
 # HorizontalRule
-# ––––––––––––––
+# ––––––––––––––
 
 type HorizontalRule
 end

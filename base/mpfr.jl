@@ -12,7 +12,7 @@ export
 
 import
     Base: (*), +, -, /, <, <=, ==, >, >=, ^, besselj, besselj0, besselj1, bessely,
-        bessely0, bessely1, ceil, cmp, convert, copysign, deg2rad,
+        bessely0, bessely1, ceil, cmp, convert, copysign, deg2rad, div,
         exp, exp2, exponent, factorial, floor, fma, hypot, isinteger,
         isfinite, isinf, isnan, ldexp, log, log2, log10, max, min, mod, modf,
         nextfloat, prevfloat, promote_rule, rad2deg, rem, round, show,
@@ -40,7 +40,7 @@ const DEFAULT_PRECISION = [256]
 
 # Basic type and initialization definitions
 
-type BigFloat <: FloatingPoint
+type BigFloat <: AbstractFloat
     prec::Clong
     sign::Cint
     exp::Clong
@@ -95,7 +95,7 @@ function tryparse(::Type{BigFloat}, s::AbstractString, base::Int=0)
 end
 
 convert(::Type{Rational}, x::BigFloat) = convert(Rational{BigInt}, x)
-convert(::Type{FloatingPoint}, x::BigInt) = BigFloat(x)
+convert(::Type{AbstractFloat}, x::BigInt) = BigFloat(x)
 
 ## BigFloat -> Integer
 function unsafe_cast(::Type{Int64}, x::BigFloat, ri::Cint)
@@ -156,7 +156,7 @@ floor(::Type{Integer}, x::BigFloat) = floor(BigInt, x)
 ceil(::Type{Integer}, x::BigFloat) = ceil(BigInt, x)
 round(::Type{Integer}, x::BigFloat) = round(BigInt, x)
 
-convert(::Type{Bool}, x::BigFloat) = (x != 0)
+convert(::Type{Bool}, x::BigFloat) = x==0 ? false : x==1 ? true : throw(InexactError())
 function convert(::Type{BigInt},x::BigFloat)
     isinteger(x) || throw(InexactError())
     trunc(BigInt,x)
@@ -167,7 +167,7 @@ function convert{T<:Integer}(::Type{T},x::BigFloat)
     trunc(T,x)
 end
 
-## BigFloat -> FloatingPoint
+## BigFloat -> AbstractFloat
 convert(::Type{Float64}, x::BigFloat) =
     ccall((:mpfr_get_d,:libmpfr), Float64, (Ptr{BigFloat},Int32), &x, ROUNDING_MODE[end])
 convert(::Type{Float32}, x::BigFloat) =
@@ -184,10 +184,10 @@ call(::Type{Float16}, x::BigFloat, r::RoundingMode) =
     convert(Float16, call(Float32, x, r))
 
 promote_rule{T<:Real}(::Type{BigFloat}, ::Type{T}) = BigFloat
-promote_rule{T<:FloatingPoint}(::Type{BigInt},::Type{T}) = BigFloat
-promote_rule{T<:FloatingPoint}(::Type{BigFloat},::Type{T}) = BigFloat
+promote_rule{T<:AbstractFloat}(::Type{BigInt},::Type{T}) = BigFloat
+promote_rule{T<:AbstractFloat}(::Type{BigFloat},::Type{T}) = BigFloat
 
-function convert(::Type{Rational{BigInt}}, x::FloatingPoint)
+function convert(::Type{Rational{BigInt}}, x::AbstractFloat)
     if isnan(x); return zero(BigInt)//zero(BigInt); end
     if isinf(x); return copysign(one(BigInt),x)//zero(BigInt); end
     if x == 0;   return zero(BigInt) // one(BigInt); end
@@ -306,6 +306,65 @@ function fma(x::BigFloat, y::BigFloat, z::BigFloat)
     return r
 end
 
+# div
+# BigFloat
+function div(x::BigFloat, y::BigFloat)
+    z = BigFloat()
+    ccall((:mpfr_div,:libmpfr), Int32, (Ptr{BigFloat}, Ptr{BigFloat}, Ptr{BigFloat}, Int32), &z, &x, &y, to_mpfr(RoundToZero))
+    ccall((:mpfr_trunc, :libmpfr), Int32, (Ptr{BigFloat}, Ptr{BigFloat}), &z, &z)
+    return z
+end
+
+# Unsigned Int
+function div(x::BigFloat, c::CulongMax)
+    z = BigFloat()
+    ccall((:mpfr_div_ui, :libmpfr), Int32, (Ptr{BigFloat}, Ptr{BigFloat}, Culong, Int32), &z, &x, c, to_mpfr(RoundToZero))
+    ccall((:mpfr_trunc, :libmpfr), Int32, (Ptr{BigFloat}, Ptr{BigFloat}), &z, &z)
+    return z
+end
+function div(c::CulongMax, x::BigFloat)
+    z = BigFloat()
+    ccall((:mpfr_ui_div, :libmpfr), Int32, (Ptr{BigFloat}, Culong, Ptr{BigFloat}, Int32), &z, c, &x, to_mpfr(RoundToZero))
+    ccall((:mpfr_trunc, :libmpfr), Int32, (Ptr{BigFloat}, Ptr{BigFloat}), &z, &z)
+    return z
+end
+
+# Signed Integer
+function div(x::BigFloat, c::ClongMax)
+    z = BigFloat()
+    ccall((:mpfr_div_si, :libmpfr), Int32, (Ptr{BigFloat}, Ptr{BigFloat}, Clong, Int32), &z, &x, c, to_mpfr(RoundToZero))
+    ccall((:mpfr_trunc, :libmpfr), Int32, (Ptr{BigFloat}, Ptr{BigFloat}), &z, &z)
+    return z
+end
+function div(c::ClongMax, x::BigFloat)
+    z = BigFloat()
+    ccall((:mpfr_si_div, :libmpfr), Int32, (Ptr{BigFloat}, Clong, Ptr{BigFloat}, Int32), &z, c, &x, to_mpfr(RoundToZero))
+    ccall((:mpfr_trunc, :libmpfr), Int32, (Ptr{BigFloat}, Ptr{BigFloat}), &z, &z)
+    return z
+end
+
+# Float32/Float64
+function div(x::BigFloat, c::CdoubleMax)
+    z = BigFloat()
+    ccall((:mpfr_div_d, :libmpfr), Int32, (Ptr{BigFloat}, Ptr{BigFloat}, Cdouble, Int32), &z, &x, c, to_mpfr(RoundToZero))
+    ccall((:mpfr_trunc, :libmpfr), Int32, (Ptr{BigFloat}, Ptr{BigFloat}), &z, &z)
+    return z
+end
+function div(c::CdoubleMax, x::BigFloat)
+    z = BigFloat()
+    ccall((:mpfr_d_div, :libmpfr), Int32, (Ptr{BigFloat}, Cdouble, Ptr{BigFloat}, Int32), &z, c, &x, to_mpfr(RoundToZero))
+    ccall((:mpfr_trunc, :libmpfr), Int32, (Ptr{BigFloat}, Ptr{BigFloat}), &z, &z)
+    return z
+end
+
+# BigInt
+function div(x::BigFloat, c::BigInt)
+    z = BigFloat()
+    ccall((:mpfr_div_z, :libmpfr), Int32, (Ptr{BigFloat}, Ptr{BigFloat}, Ptr{BigInt}, Int32), &z, &x, &c, to_mpfr(RoundToZero))
+    ccall((:mpfr_trunc, :libmpfr), Int32, (Ptr{BigFloat}, Ptr{BigFloat}), &z, &z)
+    return z
+end
+
 
 
 # More efficient commutative operations
@@ -342,6 +401,7 @@ function -(x::BigFloat)
 end
 
 function sqrt(x::BigFloat)
+    isnan(x) && return x
     z = BigFloat()
     ccall((:mpfr_sqrt, :libmpfr), Int32, (Ptr{BigFloat}, Ptr{BigFloat}, Int32), &z, &x, ROUNDING_MODE[end])
     if isnan(z)

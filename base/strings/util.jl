@@ -173,17 +173,22 @@ function _rsplit{T<:AbstractString,U<:Array}(str::T, splitter, limit::Integer, k
 end
 #rsplit(str::AbstractString) = rsplit(str, _default_delims, 0, false)
 
-function replace(str::ByteString, pattern, repl::Function, limit::Integer)
+_replace(io, repl, str, r, pattern) = write(io, repl)
+_replace(io, repl::Function, str, r, pattern) =
+    write(io, repl(SubString(str, first(r), last(r))))
+
+function replace(str::ByteString, pattern, repl, limit::Integer)
     n = 1
     e = endof(str)
     i = a = start(str)
     r = search(str,pattern,i)
     j, k = first(r), last(r)
     out = IOBuffer()
+    ensureroom(out, floor(Int, 1.2sizeof(str)))
     while j != 0
         if i == a || i <= k
-            write(out, SubString(str,i,prevind(str,j)))
-            write(out, string(repl(SubString(str,j,k))))
+            write_sub(out, str.data, i, j-i)
+            _replace(out, repl, str, r, pattern)
         end
         if k<j
             i = j
@@ -202,8 +207,7 @@ function replace(str::ByteString, pattern, repl::Function, limit::Integer)
     write(out, SubString(str,i))
     takebuf_string(out)
 end
-replace(s::AbstractString, pat, f::Function, n::Integer) = replace(bytestring(s), pat, f, n)
-replace(s::AbstractString, pat, r, n::Integer) = replace(s, pat, x->r, n)
+replace(s::AbstractString, pat, f, n::Integer) = replace(bytestring(s), pat, f, n)
 replace(s::AbstractString, pat, r) = replace(s, pat, r, 0)
 
 # hex <-> bytes conversion

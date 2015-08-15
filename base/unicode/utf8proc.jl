@@ -75,10 +75,7 @@ function utf8proc_map(s::ByteString, flags::Integer)
                    s, sizeof(s), p, flags)
     result < 0 && error(bytestring(ccall(:utf8proc_errmsg, Ptr{UInt8},
                                          (Cssize_t,), result)))
-    a = ccall(:jl_ptr_to_array_1d, Vector{UInt8},
-              (Any, Ptr{UInt8}, Csize_t, Cint),
-              Vector{UInt8}, p[], result, true)
-    ccall(:jl_array_to_string, Any, (Any,), a)::ByteString
+    pointer_to_string(p[], result, true)::ByteString
 end
 
 utf8proc_map(s::AbstractString, flags::Integer) = utf8proc_map(bytestring(s), flags)
@@ -196,7 +193,7 @@ immutable GraphemeIterator{S<:AbstractString}
 end
 graphemes(s::AbstractString) = GraphemeIterator{typeof(s)}(s)
 
-eltype{S}(::GraphemeIterator{S}) = SubString{S}
+eltype{S}(::Type{GraphemeIterator{S}}) = SubString{S}
 
 function length(g::GraphemeIterator)
     c0 = Char(0x00ad) # soft hyphen (grapheme break always allowed after this)

@@ -46,7 +46,14 @@ some noteworthy differences that may trip up Julia users accustomed to MATLAB:
   the syntax ``[a b; c d]`` is used to avoid confusion. In Julia v0.4, the
   concatenation syntax ``[x, [y, z]]`` is deprecated in favor of ``[x; [y, z]]``.
 - In Julia, ``a:b`` and ``a:b:c`` construct :obj:`Range` objects. To construct
-  a full vector like in MATLAB, use :func:`collect(a:b) <collect>`.
+  a full vector like in MATLAB, use :func:`collect(a:b) <collect>`. Generally,
+  there is no need to call ``collect`` though. ``Range`` will act like a normal
+  array in most cases but is more efficient because it lazily computes its
+  values. This pattern of creating specialized objects instead of full arrays
+  is used frequently, and is also seen in functions such as :func:`linspace
+  <linspace>`, or with iterators such as :func:`enumerate <enumerate>`, and
+  :func:`zip <zip>`. The special objects can mostly be used as if they were
+  normal arrays.
 - Functions in Julia return values from their last expression or the ``return``
   keyword instead of listing the names of variables to return in the function
   definition (see :ref:`man-return-keyword` for details).
@@ -158,9 +165,8 @@ noteworthy differences:
   an assignment operation: you cannot write ``diag(M) = ones(n)``.
 - Julia discourages populating the main namespace with functions. Most
   statistical functionality for Julia is found in
-  `packages <http://docs.julialang.org/en/latest/packages/packagelist/>`_
-  under the `JuliaStats organization <https://github.com/JuliaStats>`_. For
-  example:
+  `packages <http://pkg.julialang.org/>`_ under the `JuliaStats organization
+  <https://github.com/JuliaStats>`_. For example:
 
   - Functions pertaining to probability distributions are provided by the
     `Distributions package <https://github.com/JuliaStats/Distributions.jl>`_.

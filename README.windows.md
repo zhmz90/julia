@@ -49,13 +49,13 @@ or edit `%USERPROFILE%\.gitconfig` and add/edit the lines:
 - Windows 8: supported (32 and 64 bits)
 - Windows 7: supported (32 and 64 bits)
 - Windows Vista: not officially supported (but probably works anyways)
-- Windows XP: not officially supported (but may work anyways)
+- Windows XP: not supported (but may work anyways, if you can get around the lack of junction points)
 
 ## Compiling with MinGW/MSYS2
 
 ### MSYS2 provides a robust MSYS experience.
 
-1. Install [Python 2.x](http://www.python.org/download/releases). Do **not** install Python 3.
+1. Install [Python 2.x](http://www.python.org/downloads/). Do **not** install Python 3.
 
 2. Install [CMake](http://www.cmake.org/download/).
 
@@ -223,9 +223,59 @@ Vagrant.configure("2") do |config|
 end
 ```
 
-### Cross-building Julia
+### Cross-building Julia without Vagrant
 
-Finally, the build and install process for Julia:
+If you don't care that the build is potentially incompatible with the WinRPM ecosystem (or happen to be on opensuse), use the following steps to cross-compile julia:
+
+First, you will need to ensure your system has the required dependencies. We need wine (>=1.7.5),
+a system compiler, and some downloaders.
+
+On Ubuntu (on other linux systems, the dependency names are likely to be similar):
+
+    apt-add-repository ppa:ubuntu-wine/ppa
+    apt-get upate
+    apt-get install wine1.7 subversion cvs gcc wget p7zip-full
+
+On Mac: Install XCode, XCode command line tools, X11 (now [XQuartz](http://xquartz.macosforge.org/)),
+and [MacPorts](http://www.macports.org/install.php) or [Homebrew](http://mxcl.github.io/homebrew/).
+Then run ```port install wine wget``` or ```brew install wine wget```, as appropriate.
+
+On Both:
+
+Unfortunately, the version of gcc installed by Ubuntu targets pthreads.
+On Mac, the situation is similar: the version in MacPorts is very old and Homebrew does not have it.
+So first we need to get a cross-compile version of gcc.
+Most binary packages appear to not include gfortran, so we will need to compile it from source.
+This is typically quite a bit of work, so we will use [this script](http://sourceforge.net/projects/mingw-w64-dgn/) o make it easy.
+
+1. `svn checkout svn checkout svn://svn.code.sf.net/p/mingw-w64-dgn/code/trunk mingw-w64-dgn-code`
+2. `cd mingw-w64-dgn`
+3. edit `rebuild_cross.sh` and make the following two changes:
+  a. uncomment `export MAKE_OPT="-j 2"`, if appropriate for your machine
+  b. add `fortran` to the end of `--enable-languages=c,c++,objc,obj-c++`
+5. `bash update_source.sh`
+4. `bash rebuild_cross.sh`
+5. `mv cross ~/cross-w64`
+6. `export PATH=$HOME/cross-w64/bin:$PATH` # NOTE: it is important that you remember to always do this before using make in the following steps!, you can put this line in your .profile to make it easy
+
+Then we can essentially just repeat these steps for the 32-bit compiler, reusing some of the work:
+
+7. `cd ..`
+8. `cp -a mingw-w64-dgn mingw-w32-dgn`
+9. `cd mingw-w32-dgn`
+10. `rm -r cross build`
+11. `bash rebuild_cross.sh 32r`
+12. `mv cross ~/cross-w32`
+13. `export PATH=$HOME/cross-w32/bin:$PATH` # NOTE: it is important that you remember to always do this before using make in the following steps!, you can put this line in your .profile to make it easy
+
+Note: for systems that support rpm-based package managers, the necessary dependencies can be downloaded from the OpenSUSE build service (see the Vagrant script above).
+
+@vtjnash occassionally upload his builds, so you can also download those to save build time:
+- [x86_64-w64-mingw64 gcc-5.2.0 MacOS-10.10 (105 MB)](https://onedrive.live.com/redir?resid=BCAF288A35FC4406!1601&authkey=!ANpFOoCqFGYTcHM&ithint=file%2cgz)
+- [i686-w64-mingw64 gcc-5.2.0 MacOS-10.10 (143 MB)](https://onedrive.live.com/redir?resid=BCAF288A35FC4406!1603&authkey=!AFFN2E_8hytOaoc&ithint=file%2cgz)
+- [*-w64-mingw64 gcc-4.9.2 Ubuntu-15.04 (168 MB)](https://onedrive.live.com/redir?resid=BCAF288A35FC4406!1602&authkey=!ABhstrqDG-4zdLo&ithint=file%2cgz)
+
+Then run the build:
 
 1. `git clone https://github.com/JuliaLang/julia.git julia-win32`
 2. `echo override XC_HOST = i686-w64-mingw32 >> Make.user`
@@ -234,17 +284,34 @@ Finally, the build and install process for Julia:
 5. `make binary-dist`
 6. move the julia-*.exe installer to the target machine
 
-If you are building for 64-bit windows, the steps are essentially the same. Just replace i686 in XC_HOST with x86_64. (note: on Mac, wine only runs in 32-bit mode)
+If you are building for 64-bit windows, the steps are essentially the same. Just replace i686 in XC_HOST with x86_64. (note: on Mac, wine only runs in 32-bit mode).
+
+## Using a Windows VM
+
+[Vagrant](http://www.vagrantup.com/downloads) can also be used with a Windows
+guest VM via the `Vagrantfile` in [contrib/windows](contrib/windows/Vagrantfile),
+just run `vagrant up` from that folder. To build with Cygwin instead of MSYS2,
+replace `config.vm.provision :shell, privileged: false, :inline => $script_msys2`
+(near the end of the file) with `config.vm.provision :shell, privileged: false, :inline => $script_cygwin`.
+
 
 ## Windows Build Debugging
 
 ### GDB hangs with cygwin mintty
 
-- run gdb under the windows console (cmd) instead. gdb [does not function properly](https://www.cygwin.com/ml/cygwin/2009-02/msg00531.html) under mintty with non-cygwin applications.
+- Run gdb under the windows console (cmd) instead. gdb [does not function properly](https://www.cygwin.com/ml/cygwin/2009-02/msg00531.html) under mintty with non-cygwin applications. You can use `cmd /c start` to start the windows console from mintty if necessary.
+
+### GDB not attaching to the right process
+
+- Use the PID from the windows task manager or `WINPID` from the `ps` command instead of the PID from unix style command line tools (e.g. `pgrep`). You may need to add the PID column if it is not shown by default in the windows task manager.
+
+### GDB not showing the right backtrace
+
+- When attaching to the julia process, GDB may not be attaching to the right thread. Use `info threads` command to show all the threads and `thread <threadno>` to switch threads.
 
 ### Build process is slow/eats memory/hangs my computer
 
-- Disable the Windows [Superfetch](http://en.wikipedia.org/wiki/Windows_Vista_I/O_technologies#SuperFetch) and
+- Disable the Windows [Superfetch](https://en.wikipedia.org/wiki/Windows_Vista_I/O_technologies#SuperFetch) and
   [Program Compatibility Assistant](http://blogs.msdn.com/b/cjacks/archive/2011/11/22/managing-the-windows-7-program-compatibility-assistant-pca.aspx) services, as they are known to have
   [spurious interactions]((https://cygwin.com/ml/cygwin/2011-12/msg00058.html)) with MinGW/Cygwin.
 

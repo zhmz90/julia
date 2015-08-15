@@ -165,7 +165,22 @@ function pad(m::Int, n, c::Char)
     end
 end
 
-function print_fixed(out, precision, pt, ndigits)
+function dynamic_pad(m, val, c::Char)
+    @gensym i
+    quote
+        if $m <= 1
+            $val > 0 && write(out,$c)
+        else
+            $i = $val
+            while $i > 0
+                write(out,$c)
+                $i -= 1
+            end
+        end
+    end
+end
+
+function print_fixed(out, precision, pt, ndigits, trailingzeros=true)
     pdigits = pointer(DIGITS)
     if pt <= 0
         # 0.0dddd0
@@ -185,7 +200,7 @@ function print_fixed(out, precision, pt, ndigits)
             write(out, '0')
             ndigits += 1
         end
-        write(out, '.')
+        write(out, trailingzeros ? '.' : ' ')
     else # 0 < pt < ndigits
         # dd.dd0000
         ndigits -= pt
@@ -194,9 +209,11 @@ function print_fixed(out, precision, pt, ndigits)
         write(out, pdigits+pt, ndigits)
         precision -= ndigits
     end
-    while precision > 0
-        write(out, '0')
-        precision -= 1
+    if trailingzeros
+        while precision > 0
+            write(out, '0')
+            precision -= 1
+        end
     end
 end
 
@@ -276,7 +293,7 @@ function gen_d(flags::ASCIIString, width::Int, precision::Int, c::Char)
         end
     end
     # print space padding
-    if padding != nothing && !('-' in flags)
+    if padding !== nothing && !('-' in flags)
         push!(blk.args, pad(width-precision, padding, ' '))
     end
     # print sign
@@ -297,7 +314,7 @@ function gen_d(flags::ASCIIString, width::Int, precision::Int, c::Char)
     # print integer
     push!(blk.args, :(write(out, pointer(DIGITS), pt)))
     # print padding
-    if padding != nothing && '-' in flags
+    if padding !== nothing && '-' in flags
         push!(blk.args, pad(width-precision, padding, ' '))
     end
     # return arg, expr
@@ -339,7 +356,7 @@ function gen_f(flags::ASCIIString, width::Int, precision::Int, c::Char)
         end
     end
     # print space padding
-    if padding != nothing && !('-' in flags) && !('0' in flags)
+    if padding !== nothing && !('-' in flags) && !('0' in flags)
         push!(blk.args, pad(width-1, padding, ' '))
     end
     # print sign
@@ -347,7 +364,7 @@ function gen_f(flags::ASCIIString, width::Int, precision::Int, c::Char)
     ' ' in flags ? push!(blk.args, :(write(out, neg?'-':' '))) :
                    push!(blk.args, :(neg && write(out, '-')))
     # print zero padding
-    if padding != nothing && !('-' in flags) && '0' in flags
+    if padding !== nothing && !('-' in flags) && '0' in flags
         push!(blk.args, pad(width-1, padding, '0'))
     end
     # print digits
@@ -359,14 +376,14 @@ function gen_f(flags::ASCIIString, width::Int, precision::Int, c::Char)
         '#' in flags && push!(blk.args, :(write(out, '.')))
     end
     # print space padding
-    if padding != nothing && '-' in flags
+    if padding !== nothing && '-' in flags
         push!(blk.args, pad(width-1, padding, ' '))
     end
     # return arg, expr
     :(($x)::Real), ex
 end
 
-function gen_e(flags::ASCIIString, width::Int, precision::Int, c::Char)
+function gen_e(flags::ASCIIString, width::Int, precision::Int, c::Char, inside_g::Bool=false)
     # print float in scientific form:
     #  [e]: use 'e' to introduce exponent
     #  [E]: use 'E' to introduce exponent
@@ -378,7 +395,13 @@ function gen_e(flags::ASCIIString, width::Int, precision::Int, c::Char)
     #  ( ): precede non-negative values with " "
     #  (+): precede non-negative values with "+"
     #
-    x, ex, blk = special_handler(flags,width)
+    x, ex, blk = if inside_g
+        @gensym x
+        blk = Expr(:block)
+        x, blk, blk
+    else
+        special_handler(flags,width)
+    end
     # interpret the number
     if precision < 0; precision = 6; end
     ndigits = min(precision+1,length(DIGITS)-1)
@@ -427,7 +450,7 @@ function gen_e(flags::ASCIIString, width::Int, precision::Int, c::Char)
         end
     end
     # print space padding
-    if padding != nothing && !('-' in flags) && !('0' in flags)
+    if padding !== nothing && !('-' in flags) && !('0' in flags)
         push!(blk.args, pad(width, padding, ' '))
     end
     # print sign
@@ -435,17 +458,29 @@ function gen_e(flags::ASCIIString, width::Int, precision::Int, c::Char)
     ' ' in flags ? push!(blk.args, :(write(out, neg?'-':' '))) :
                     push!(blk.args, :(neg && write(out, '-')))
     # print zero padding
-    if padding != nothing && !('-' in flags) && '0' in flags
+    if padding !== nothing && !('-' in flags) && '0' in flags
         push!(blk.args, pad(width, padding, '0'))
     end
     # print digits
     push!(blk.args, :(write(out, DIGITS[1])))
     if precision > 0
-        push!(blk.args, :(write(out, '.')))
-        push!(blk.args, :(write(out, pointer(DIGITS)+1, $(ndigits-1))))
-        if ndigits < precision+1
-            n = precision+1-ndigits
-            push!(blk.args, pad(n, n, '0'))
+        if inside_g && !('#' in flags)
+            push!(blk.args, :(endidx = $ndigits;
+                              while endidx > 1 && DIGITS[endidx] == '0'
+                                  endidx -= 1
+                              end;
+                              if endidx > 1
+                                  write(out, '.')
+                                  write(out, pointer(DIGITS)+1, endidx-1)
+                              end
+                              ))
+        else
+            push!(blk.args, :(write(out, '.')))
+            push!(blk.args, :(write(out, pointer(DIGITS)+1, $(ndigits-1))))
+            if ndigits < precision+1
+                n = precision+1-ndigits
+                push!(blk.args, pad(n, n, '0'))
+            end
         end
     end
     for ch in expmark
@@ -453,7 +488,7 @@ function gen_e(flags::ASCIIString, width::Int, precision::Int, c::Char)
     end
     push!(blk.args, :(print_exp_e(out, exp)))
     # print space padding
-    if padding != nothing && '-' in flags
+    if padding !== nothing && '-' in flags
         push!(blk.args, pad(width, padding, ' '))
     end
     # return arg, expr
@@ -521,7 +556,7 @@ function gen_a(flags::ASCIIString, width::Int, precision::Int, c::Char)
         end
     end
     # print space padding
-    if padding != nothing && !('-' in flags) && !('0' in flags)
+    if padding !== nothing && !('-' in flags) && !('0' in flags)
         push!(blk.args, pad(width, padding, ' '))
     end
     # print sign
@@ -533,7 +568,7 @@ function gen_a(flags::ASCIIString, width::Int, precision::Int, c::Char)
         push!(blk.args, :(write(out, $ch)))
     end
     # print zero padding
-    if padding != nothing && !('-' in flags) && '0' in flags
+    if padding !== nothing && !('-' in flags) && '0' in flags
         push!(blk.args, pad(width, padding, '0'))
     end
     # print digits
@@ -561,7 +596,7 @@ function gen_a(flags::ASCIIString, width::Int, precision::Int, c::Char)
     end
     push!(blk.args, :(print_exp_a(out, exp)))
     # print space padding
-    if padding != nothing && '-' in flags
+    if padding !== nothing && '-' in flags
         push!(blk.args, pad(width, padding, ' '))
     end
     # return arg, expr
@@ -645,7 +680,81 @@ function gen_p(flags::ASCIIString, width::Int, precision::Int, c::Char)
 end
 
 function gen_g(flags::ASCIIString, width::Int, precision::Int, c::Char)
-    error("printf \"%g\" format specifier not implemented")
+    x, ex, blk = special_handler(flags,width)
+    if precision < 0; precision = 6; end
+    ndigits = min(precision+1,length(DIGITS)-1)
+    # See if anyone else wants to handle it
+    push!(blk.args, :((do_out, args) = ini_dec(out,$x,$ndigits, $flags, $width, $precision, $c)))
+    ifblk = Expr(:if, :do_out, Expr(:block))
+    push!(blk.args, ifblk)
+    blk = ifblk.args[2]
+    push!(blk.args, :((len, pt, neg) = args))
+    push!(blk.args, :(exp = pt-1))
+    push!(blk.args, :(do_f = $precision > exp >= -4)) # Should we interpret like %f or %e?
+    feblk = Expr(:if, :do_f, Expr(:block), Expr(:block))
+    push!(blk.args, feblk)
+    fblk = feblk.args[2]
+    eblk = feblk.args[3]
+
+    ### %f branch
+    # Follow the same logic as gen_f() but more work has to be deferred until runtime
+    # because precision is unknown until then.
+    push!(fblk.args, :(fprec = $precision - (exp+1)))
+    push!(fblk.args, :((do_out, args) = fix_dec(out, $x, $flags, $width, fprec, $c - 1)))
+    fifblk = Expr(:if, :do_out, Expr(:block))
+    push!(fblk.args, fifblk)
+    blk = fifblk.args[2]
+    push!(blk.args, :((len, pt, neg) = args))
+    push!(blk.args, :(padding = nothing))
+    push!(blk.args, :(width = $width))
+    # need to compute value before left-padding since trailing zeros are elided
+    push!(blk.args, :(tmpout = IOBuffer()))
+    push!(blk.args, :(if fprec > 0
+                          print_fixed(tmpout,fprec,pt,len,$('#' in flags))
+                      else
+                          write(tmpout, pointer(DIGITS), len)
+                          while pt >= (len+=1) write(tmpout,'0') end
+                      end))
+    push!(blk.args, :(tmpstr = takebuf_string(tmpout)))
+    push!(blk.args, :(if fprec > 0 width -= length(tmpstr); end ))
+    if '+' in flags || ' ' in flags
+        push!(blk.args, :(width -= 1))
+    else
+        push!(blk.args, :(if neg width -= 1; end))
+    end
+    push!(blk.args, :(if width >= 1 padding = width; end))
+    # print space padding
+    if !('-' in flags) && !('0' in flags)
+        padexpr = dynamic_pad(:width, :padding, ' ')
+        push!(blk.args, :(if padding != nothing
+                          $padexpr; end))
+    end
+    # print sign
+    '+' in flags ? push!(blk.args, :(write(out, neg?'-':'+'))) :
+    ' ' in flags ? push!(blk.args, :(write(out, neg?'-':' '))) :
+                   push!(blk.args, :(neg && write(out, '-')))
+    # print zero padding
+    if !('-' in flags) && '0' in flags
+        padexpr = dynamic_pad(:width, :padding, '0')
+        push!(blk.args, :(if padding != nothing
+                          $padexpr; end))
+    end
+    # finally print value
+    push!(blk.args, :(write(out,tmpstr)))
+    # print space padding
+    if '-' in flags
+        padexpr = dynamic_pad(:width, :padding, ' ')
+        push!(blk.args, :(if padding != nothing
+                          $padexpr; end))
+    end
+
+    ### %e branch
+    # Here we can do all the work at macro expansion time
+    var, eex = gen_e(flags, width, precision-1, c, true)
+    push!(eblk.args, :($(var.args[1]) = $x))
+    push!(eblk.args, eex)
+
+    :(($x)::Real), ex
 end
 
 ### core unsigned integer decoding functions ###

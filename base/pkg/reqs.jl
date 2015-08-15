@@ -2,6 +2,8 @@
 
 module Reqs
 
+import Base: ==, hash
+
 using ..Types
 
 # representing lines of REQUIRE files
@@ -47,8 +49,8 @@ immutable Requirement <: Line
     end
 end
 
-# TODO: shouldn't be neccessary #4648
 ==(a::Line, b::Line) = a.content == b.content
+hash(s::Line, h::UInt) = hash(s.content, h + (0x3f5a631add21cb1a % UInt))
 
 # general machinery for parsing REQUIRE files
 
@@ -110,7 +112,7 @@ function dependents(packagename::AbstractString)
     pkgs
 end
 
-# add & rm – edit the content a requires file
+# add & rm – edit the content a requires file
 
 function add(lines::Vector{Line}, pkg::AbstractString, versions::VersionSet=VersionSet())
     v = VersionSet[]

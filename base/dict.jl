@@ -8,7 +8,12 @@ const secret_table_token = :__c782dbf1cf4d6a2e5e3865d7e95634f2e09b5902__
 
 haskey(d::Associative, k) = in(k,keys(d))
 
-function in(p::Tuple{Any,Any}, a::Associative)
+function in(p, a::Associative)
+    if !isa(p,Pair)
+        error("""Associative collections only contain Pairs;
+                 Either look for e.g. A=>B instead, or use the `keys` or `values`
+                 function if you are looking for a key or value respectively.""")
+    end
     v = get(a,p[1],secret_table_token)
     !is(v, secret_table_token) && (v == p[2])
 end
@@ -47,7 +52,7 @@ showdict(t::Associative; kw...) = showdict(STDOUT, t; kw...)
 function showdict{K,V}(io::IO, t::Associative{K,V}; limit::Bool = false, compact = false,
                        sz=(s = tty_size(); (s[1]-3, s[2])))
     shown_set = get(task_local_storage(), :SHOWNSET, nothing)
-    if shown_set == nothing
+    if shown_set === nothing
         shown_set = ObjectIdDict()
         task_local_storage(:SHOWNSET, shown_set)
     end
@@ -170,8 +175,8 @@ end
 
 length(v::Union{KeyIterator,ValueIterator}) = length(v.dict)
 isempty(v::Union{KeyIterator,ValueIterator}) = isempty(v.dict)
-_tt1{A,B}(::Type{Tuple{A,B}}) = A
-_tt2{A,B}(::Type{Tuple{A,B}}) = B
+_tt1{A,B}(::Type{Pair{A,B}}) = A
+_tt2{A,B}(::Type{Pair{A,B}}) = B
 eltype{D}(::Type{KeyIterator{D}}) = _tt1(eltype(D))
 eltype{D}(::Type{ValueIterator{D}}) = _tt2(eltype(D))
 
@@ -232,7 +237,7 @@ function filter!(f, d::Associative)
 end
 filter(f, d::Associative) = filter!(f,copy(d))
 
-eltype{K,V}(::Type{Associative{K,V}}) = Tuple{K,V}
+eltype{K,V}(::Type{Associative{K,V}}) = Pair{K,V}
 
 function isequal(l::Associative, r::Associative)
     if isa(l,ObjectIdDict) != isa(r,ObjectIdDict)
@@ -340,7 +345,7 @@ _oidd_nextind(a, i) = reinterpret(Int,ccall(:jl_eqtable_nextind, Csize_t, (Any, 
 
 start(t::ObjectIdDict) = _oidd_nextind(t.ht, 0)
 done(t::ObjectIdDict, i) = (i == -1)
-next(t::ObjectIdDict, i) = ((t.ht[i+1],t.ht[i+2]), _oidd_nextind(t.ht, i+2))
+next(t::ObjectIdDict, i) = (Pair{Any,Any}(t.ht[i+1],t.ht[i+2]), _oidd_nextind(t.ht, i+2))
 
 function length(d::ObjectIdDict)
     n = 0
@@ -427,7 +432,19 @@ Dict{K  }(ps::Pair{K}...,)             = Dict{K,Any}(ps)
 Dict{V  }(ps::Pair{TypeVar(:K),V}...,) = Dict{Any,V}(ps)
 Dict(     ps::Pair...)                 = Dict{Any,Any}(ps)
 
-Dict(kv) = dict_with_eltype(kv, eltype(kv))
+function Dict(kv)
+    try
+        Base.dict_with_eltype(kv, eltype(kv))
+    catch e
+        if any(x->isempty(methods(x, (typeof(kv),))), [start, next, done]) ||
+            !all(x->isa(x,Union{Tuple,Pair}),kv)
+            throw(ArgumentError("Dict(kv): kv needs to be an iterator of tuples or pairs"))
+        else
+            rethrow(e)
+        end
+    end
+end
+
 dict_with_eltype{K,V}(kv, ::Type{Tuple{K,V}}) = Dict{K,V}(kv)
 dict_with_eltype{K,V}(kv, ::Type{Pair{K,V}}) = Dict{K,V}(kv)
 dict_with_eltype(kv, t) = Dict{Any,Any}(kv)
@@ -755,7 +772,7 @@ end
 
 start(t::Dict) = skip_deleted(t, 1)
 done(t::Dict, i) = i > length(t.vals)
-next(t::Dict, i) = ((t.keys[i],t.vals[i]), skip_deleted(t,i+1))
+next{K,V}(t::Dict{K,V}, i) = (Pair{K,V}(t.keys[i],t.vals[i]), skip_deleted(t,i+1))
 
 isempty(t::Dict) = (t.count == 0)
 length(t::Dict) = t.count
@@ -818,8 +835,8 @@ isempty(wkh::WeakKeyDict) = isempty(wkh.ht)
 
 start(t::WeakKeyDict) = start(t.ht)
 done(t::WeakKeyDict, i) = done(t.ht, i)
-function next{K}(t::WeakKeyDict{K}, i)
+function next{K,V}(t::WeakKeyDict{K,V}, i)
     kv, i = next(t.ht, i)
-    ((kv[1].value::K,kv[2]), i)
+    (Pair{K,V}(kv[1].value::K,kv[2]), i)
 end
 length(t::WeakKeyDict) = length(t.ht)

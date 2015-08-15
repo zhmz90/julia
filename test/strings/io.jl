@@ -223,3 +223,30 @@ Base.next(jt::i9178, n) = (jt.nnext += 1 ; ("$(jt.nnext),$(jt.ndone)", n+1))
 @test "$("string")" == "string"
 arr = ["a","b","c"]
 @test "[$(join(arr, " - "))]" == "[a - b - c]"
+
+# print_joined with empty input
+myio = IOBuffer()
+print_joined(myio, "", "", 1)
+@test isempty(takebuf_array(myio))
+
+# unescape_chars
+@test Base.unescape_chars("\\t","t") == "t"
+@test_throws ArgumentError print_unescaped(IOBuffer(), string('\\',"xZ"))
+@test_throws ArgumentError print_unescaped(IOBuffer(), string('\\',"777"))
+
+# 11659
+# The indentation code was not correctly counting tab stops
+@test Base.indentation("      \t") == (8, true)
+@test Base.indentation("  \tfoob") == (8, false)
+@test Base.indentation(" \t \t")   == (16, true)
+
+@test Base.unindent("\tfoo",0) == "\tfoo"
+@test Base.unindent("\tfoo",4) == "    foo"
+@test Base.unindent("    \tfoo",4) == "    foo"
+@test Base.unindent("\t\n    \tfoo",4) == "    \n    foo"
+@test Base.unindent("\tfoo\tbar",4) == "    foo     bar"
+@test Base.unindent("\n\tfoo",4) == "\n    foo"
+@test Base.unindent("\n    \tfoo",4) == "\n    foo"
+@test Base.unindent("\n\t\n    \tfoo",4) == "\n    \n    foo"
+@test Base.unindent("\n\tfoo\tbar",4) == "\n    foo     bar"
+

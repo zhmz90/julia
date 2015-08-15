@@ -1791,7 +1791,7 @@ MPFR_OPTS += --host=none-unknown-linux
 endif
 
 mpfr-$(MPFR_VER).tar.bz2:
-	$(JLDOWNLOAD) $@ http://www.mpfr.org/mpfr-current/$@
+	$(JLDOWNLOAD) $@ http://www.mpfr.org/mpfr-$(MPFR_VER)/$@
 mpfr-$(MPFR_VER)/configure: mpfr-$(MPFR_VER).tar.bz2
 	$(JLCHECKSUM) $<
 	$(TAR) jxf $<
@@ -1945,7 +1945,10 @@ LIBGIT2_OBJ_TARGET = $(build_shlibdir)/libgit2.$(SHLIB_EXT)
 
 LIBGIT2_OPTS = $(CMAKE_COMMON) -DTHREADSAFE=ON
 ifeq ($(OS),WINNT)
-LIBGIT2_OPTS += -DWIN32=ON -DMINGW=ON -DUSE_SSH=OFF -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_BUILD_TYPE=Debug
+LIBGIT2_OPTS += -DWIN32=ON -DMINGW=ON -DUSE_SSH=OFF -DCMAKE_SYSTEM_NAME=Windows
+ifneq ($(ARCH),x86_64)
+LIBGIT2_OPTS += -DCMAKE_C_FLAGS="-mincoming-stack-boundary=2"
+endif
 ifeq ($(BUILD_OS),WINNT)
 LIBGIT2_OPTS += -G"MSYS Makefiles"
 else
@@ -1955,8 +1958,6 @@ endif
 endif
 
 $(LIBGIT2_SRC_DIR)/build/Makefile: $(LIBGIT2_SRC_DIR)/CMakeLists.txt
-	-cd $(LIBGIT2_SRC_DIR) && patch -p1 -f < ../libgit2_oldcmake.patch
-	-cd $(LIBGIT2_SRC_DIR) && patch -p1 -f < ../libgit2_oldssl.patch
 	mkdir -p $(LIBGIT2_SRC_DIR)/build
 	cd $(LIBGIT2_SRC_DIR)/build/ && \
 	$(CMAKE) .. $(LIBGIT2_OPTS)

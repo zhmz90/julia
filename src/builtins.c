@@ -34,7 +34,7 @@ extern "C" {
 DLLEXPORT void NORETURN jl_error(const char *str)
 {
     if (jl_errorexception_type == NULL) {
-        jl_printf(JL_STDERR, "%s\n", str);
+        jl_printf(JL_STDERR, "ERROR: %s\n", str);
         jl_exit(1);
     }
     jl_value_t *msg = jl_pchar_to_string((char*)str, strlen(str));
@@ -47,6 +47,7 @@ extern int vasprintf(char **str, const char *fmt, va_list ap);
 static void NORETURN jl_vexceptionf(jl_datatype_t *exception_type, const char *fmt, va_list args)
 {
     if (exception_type == NULL) {
+        jl_printf(JL_STDERR, "ERROR: ");
         jl_vprintf(JL_STDERR, fmt, args);
         jl_printf(JL_STDERR, "\n");
         jl_exit(1);
@@ -266,10 +267,13 @@ static int NOINLINE compare_fields(jl_value_t *a, jl_value_t *b, jl_datatype_t *
         }
         else {
             jl_datatype_t *ft = (jl_datatype_t*)jl_field_type(dt, f);
-            if (!ft->haspadding)
+            if (!ft->haspadding) {
                 eq = bits_equal(ao, bo, dt->fields[f].size);
-            else
+            }
+            else {
+                assert(jl_datatype_nfields(ft) > 0);
                 eq = compare_fields((jl_value_t*)ao, (jl_value_t*)bo, ft);
+            }
         }
         if (!eq) return 0;
     }
@@ -533,8 +537,10 @@ JL_CALLABLE(jl_f_kwcall)
 
 extern int jl_lineno;
 
-DLLEXPORT jl_value_t *jl_toplevel_eval_in(jl_module_t *m, jl_value_t *ex)
+DLLEXPORT jl_value_t *jl_toplevel_eval_in(jl_module_t *m, jl_value_t *ex, int delay_warn)
 {
+    static int jl_warn_on_eval = 0;
+    int last_delay_warn = jl_warn_on_eval;
     if (m == NULL)
         m = jl_main_module;
     if (jl_is_symbol(ex))
@@ -543,16 +549,31 @@ DLLEXPORT jl_value_t *jl_toplevel_eval_in(jl_module_t *m, jl_value_t *ex)
     int last_lineno = jl_lineno;
     jl_module_t *last_m = jl_current_module;
     jl_module_t *task_last_m = jl_current_task->current_module;
+    if (!delay_warn && jl_options.incremental && jl_generating_output()) {
+        if (m != last_m) {
+            jl_printf(JL_STDERR, "WARNING: eval from module %s to %s:    \n", m->name->name, last_m->name->name);
+            jl_static_show(JL_STDERR, ex);
+            jl_printf(JL_STDERR, "\n  ** incremental compilation may be broken for this module **\n\n");
+        }
+        else if (jl_warn_on_eval) {
+            jl_printf(JL_STDERR, "WARNING: eval from staged function in module %s:    \n", m->name->name);
+            jl_static_show(JL_STDERR, ex);
+            jl_printf(JL_STDERR, "\n  ** incremental compilation may be broken for these modules **\n\n");
+        }
+    }
     JL_TRY {
+        jl_warn_on_eval = delay_warn && (jl_warn_on_eval || m != last_m); // compute whether a warning was suppressed
         jl_current_task->current_module = jl_current_module = m;
         v = jl_toplevel_eval(ex);
     }
     JL_CATCH {
+        jl_warn_on_eval = last_delay_warn;
         jl_lineno = last_lineno;
         jl_current_module = last_m;
         jl_current_task->current_module = task_last_m;
         jl_rethrow();
     }
+    jl_warn_on_eval = last_delay_warn;
     jl_lineno = last_lineno;
     jl_current_module = last_m;
     jl_current_task->current_module = task_last_m;
@@ -574,7 +595,7 @@ JL_CALLABLE(jl_f_top_eval)
         m = (jl_module_t*)args[0];
         ex = args[1];
     }
-    return jl_toplevel_eval_in(m, ex);
+    return jl_toplevel_eval_in(m, ex, 0);
 }
 
 JL_CALLABLE(jl_f_isdefined)
@@ -979,10 +1000,19 @@ JL_CALLABLE(jl_f_instantiate_type)
 {
     JL_NARGSV(instantiate_type, 1);
     if (args[0] == (jl_value_t*)jl_uniontype_type) {
-        size_t i;
-        for(i=1; i < nargs; i++) {
-            if (!jl_is_type(args[i]) && !jl_is_typevar(args[i])) {
+        for(size_t i=1; i < nargs; i++) {
+            jl_value_t* ty = args[i];
+            if ((!jl_is_type(ty) && !jl_is_typevar(ty)) || jl_is_vararg_type(ty)) {
                 jl_type_error_rt("apply_type", "parameter of Union",
+                                 (jl_value_t*)jl_type_type, args[i]);
+            }
+        }
+    }
+    else if (args[0] == (jl_value_t*)jl_tuple_type) {
+        for(size_t i=1; i < nargs; i++) {
+            jl_value_t* ty = args[i];
+            if (jl_is_vararg_type(ty) && i != nargs-1) {
+                jl_type_error_rt("apply_type", "parameter of Tuple",
                                  (jl_value_t*)jl_type_type, args[i]);
             }
         }
@@ -1098,11 +1128,10 @@ static uptrint_t bits_hash(void *b, size_t sz)
     }
 }
 
-DLLEXPORT uptrint_t jl_object_id(jl_value_t *v)
+static uptrint_t jl_object_id_(jl_value_t *tv, jl_value_t *v)
 {
-    if (jl_is_symbol(v))
+    if (tv == (jl_value_t*)jl_sym_type)
         return ((jl_sym_t*)v)->hash;
-    jl_value_t *tv = (jl_value_t*)jl_typeof(v);
     if (tv == (jl_value_t*)jl_simplevector_type) {
         uptrint_t h = 0;
         size_t l = jl_svec_len(v);
@@ -1144,11 +1173,21 @@ DLLEXPORT uptrint_t jl_object_id(jl_value_t *v)
             u = f==NULL ? 0 : jl_object_id(f);
         }
         else {
-            u = bits_hash(vo, dt->fields[f].size);
+            jl_datatype_t *fieldtype = (jl_datatype_t*)jl_svecref(dt->types, f);
+            assert(jl_is_datatype(fieldtype) && !fieldtype->abstract && !fieldtype->mutabl);
+            if (fieldtype->haspadding)
+                u = jl_object_id_((jl_value_t*)fieldtype, (jl_value_t*)vo);
+            else
+                u = bits_hash(vo, dt->fields[f].size);
         }
         h = bitmix(h, u);
     }
     return h;
+}
+
+DLLEXPORT uptrint_t jl_object_id(jl_value_t *v)
+{
+    return jl_object_id_(jl_typeof(v), v);
 }
 
 // init -----------------------------------------------------------------------

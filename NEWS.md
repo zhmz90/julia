@@ -13,23 +13,46 @@ New language features
 
   * Unicode version 8 is now supported for identifiers etcetera ([#7917], [#12031]).
 
-  * Type parameters now permit any arbitrary `isbits` type, not just
-    `Int` and `Bool` ([#6081]).
+  * Type parameters now permit any `isbits` type, not just `Int` and `Bool` ([#6081]).
 
   * Keyword argument names can be computed, using syntax such as `f(; symbol => val)` ([#7704]).
 
-  * The `@generated function` enables generation of specialized methods depending
-    upon the types of its arguments. Sometimes referred to as a staged function,
-    it operates at two different stages of evaluation. At compile time, the generated
-    function is called with its arguments bound to the types for which it should
-    specialize. The quoted expression it returns forms the body of the specialized
-    method which is then called at run time ([#7311]).
+  * The syntax `@generated function` enables generation of specialized methods based on
+    argument types. At compile time, the function is called with its arguments bound to their
+    types instead of to their values. The function then returns an expression forming the
+    body of the function to be called at run time ([#7311]).
 
   * [Documentation system](http://docs.julialang.org/en/latest/manual/documentation/)
     for functions, methods, types and macros in packages and user code ([#8791]).
 
   * The syntax `function foo end` can be used to introduce a generic function without
     yet adding any methods ([#8283]).
+
+  * Incremental precompilation of modules: call `VERSION >= v"0.4.0-dev+6521" && __precompile__()` at the top of a
+    module file to automatically precompile it when it is imported ([#12491]), or manually
+    run `Base.compilecache(modulename)`. The resulting precompiled `.ji` file is saved in
+    `~/.julia/lib/v0.4` ([#8745]).
+
+      * See manual section on `Module initialization and precompilation` (under `Modules`) for details and errata.  In particular, to be safely precompilable a module may need an `__init__` function to separate code that must be executed at runtime rather than precompile-time.  Modules that are *not* precompilable should call `__precompile__(false)`.
+
+      * The precompiled `.ji` file includes a list of dependencies (modules and files that
+        were imported/included at precompile-time), and the module is automatically recompiled
+        upon `import` when any of its dependencies have changed.  Explicit dependencies
+        on other files can be declared with `include_dependency(path)` ([#12458]).
+
+      * New option `--output-incremental={yes|no}` added to invoke the equivalent of `Base.compilecache` from the command line.
+
+  * The syntax `new{parameters...}(...)` can be used in constructors to specify parameters for
+    the type to be constructed ([#8135]).
+  * The `++` operator is now parsed, out of discussions about string concatenation, but no default meaning has been defined yet. ([#11030], [#11686])
+
+  * Support for inter-task communication using `Channels` ([#12264]).
+    See http://docs.julialang.org/en/latest/manual/parallel-computing/#channels for details.
+
+  * RemoteRefs now point to remote channels. The remote channels can be of length greater than 1.
+    Default continues to be of length 1 ([#12385]).
+    See http://docs.julialang.org/en/latest/manual/parallel-computing/#remoterefs-and-abstractchannels for details.
+
 
 Language changes
 ----------------
@@ -84,6 +107,8 @@ Language changes
 
   * `String` is renamed to `AbstractString` ([#8872]).
 
+  * `FloatingPoint` is renamed to `AbstractFloat` ([#12162]).
+
   * `None` is deprecated; use `Union{}` instead ([#8423]).
 
   * `Nothing` (the type of `nothing`) is renamed to `Void` ([#8423]).
@@ -129,6 +154,18 @@ Language changes
 
   * `global x` in a nested scope is now a syntax error if `x` is local
     to the enclosing scope ([#7264]/[#11985]).
+
+  * The default `importall Base.Operators` is deprecated, and relying on it
+    will give a warning ([#8113]).
+
+  * `remotecall_fetch` and `fetch` now rethrow any uncaught remote exception locally as a
+    `RemoteException`. Previously they would return the remote exception object.
+    The worker pid, remote exception and remote backtrace are available in the
+    thrown `RemoteException`.
+
+  * If any of the enclosed async operations in a `@sync` block throw exceptions, they
+    are now collected in a `CompositeException` and the `CompositeException` thrown.
+
 
 Command line option changes
 ---------------------------
@@ -187,6 +224,15 @@ Library improvements
 
     * New `vecdot` function, analogous to `vecnorm`, for Euclidean inner products over any iterable container ([#11067]).
 
+    * `p = plan_fft(x)` and similar functions now return a `Base.DFT.Plan` object, rather
+    than an anonymous function.  Calling it via `p(x)` is deprecated in favor of
+    `p * x` or `p \ x` (for the inverse), and it can also be used with `A_mul_B!`
+    to employ pre-allocated output arrays ([#12087]).
+
+    * `LU{T,Tridiagonal{T}}` now supports extraction of `L`, `U`, `p`, and `P` factors ([#12137]).
+
+    * Allocations in sparse matrix factorizations are now tracked by Julia's garbage collector ([#12034]).
+
   * Strings
 
     * NUL-terminated strings should now be passed to C via the new `Cstring` type, not `Ptr{UInt8}` or `Ptr{Cchar}`,
@@ -216,7 +262,7 @@ Library improvements
 
     * AbstractArray subtypes only need to implement `size` and `getindex`
       for scalar indices to support indexing; all other indexing behaviors
-      (including logical idexing, ranges of indices, vectors, colons, etc.) are
+      (including logical indexing, ranges of indices, vectors, colons, etc.) are
       implemented in default fallbacks. Similarly, they only need to implement
       scalar `setindex!` to support all forms of indexed assingment ([#10525]).
 
@@ -280,6 +326,14 @@ Library improvements
 
     * The `MathConst` type has been renamed `Irrational` ([#11922]).
 
+    * `isapprox` now has simpler and more sensible default tolerances ([#12393]), supports arrays, and has synonyms `≈` ([U+2248](http://www.fileformat.info/info/unicode/char/2248/index.htm), LaTeX `\approx`) and `≉` ([U+2249](http://www.fileformat.info/info/unicode/char/2249/index.htm), LaTeX `\napprox`) for `isapprox` and `!isapprox`, respectively ([#12472]).
+
+  * Numbers
+
+    * `primes` is now faster and has been extended to generate the primes in a user defined closed interval ([#12025]).
+
+    * The function `primesmask` which generates a prime sieve for a user defined closed interval is now exported ([#12025]).
+
   * Random numbers
 
     * Streamlined random number generation APIs [#8246].
@@ -340,6 +394,9 @@ Library improvements
     * `mktemp` and `mktempdir` now take an optional argument to set which
       directory the temporary file or directory is created in.
 
+    * New garbage collector tracked memory allocator functions: `jl_malloc`, `jl_calloc`,
+    `jl_realloc`, and `jl_free` with libc API ([[#12034]]).
+
 Deprecated or removed
 ---------------------
 
@@ -359,7 +416,7 @@ Deprecated or removed
      end
     ```
 
-  * indexing with Reals that are not subtypes of Integers (Rationals, FloatingPoint, etc.) has been deprecated ([#10458]).
+  * indexing with Reals that are not subtypes of Integers (Rationals, AbstractFloat, etc.) has been deprecated ([#10458]).
 
   * `push!(A)` has been deprecated, use `append!` instead of splatting arguments to `push!` ([#10400]).
 
@@ -449,6 +506,8 @@ Deprecated or removed
     * `diff_gc_total_bytes` -> `jl_gc_diff_total_bytes`
 
     * `sync_gc_total_bytes` -> `jl_gc_sync_total_bytes`
+
+  * `require(::AbstractString)` and `reload` (see news about addition of `compile`)
 
 Julia v0.3.0 Release Notes
 ==========================
@@ -1398,6 +1457,8 @@ Too numerous to mention.
 [#7992]: https://github.com/JuliaLang/julia/issues/7992
 [#8011]: https://github.com/JuliaLang/julia/issues/8011
 [#8089]: https://github.com/JuliaLang/julia/issues/8089
+[#8113]: https://github.com/JuliaLang/julia/issues/8113
+[#8135]: https://github.com/JuliaLang/julia/issues/8135
 [#8152]: https://github.com/JuliaLang/julia/issues/8152
 [#8246]: https://github.com/JuliaLang/julia/issues/8246
 [#8283]: https://github.com/JuliaLang/julia/issues/8283
@@ -1416,6 +1477,7 @@ Too numerous to mention.
 [#8672]: https://github.com/JuliaLang/julia/issues/8672
 [#8712]: https://github.com/JuliaLang/julia/issues/8712
 [#8734]: https://github.com/JuliaLang/julia/issues/8734
+[#8745]: https://github.com/JuliaLang/julia/issues/8745
 [#8750]: https://github.com/JuliaLang/julia/issues/8750
 [#8776]: https://github.com/JuliaLang/julia/issues/8776
 [#8791]: https://github.com/JuliaLang/julia/issues/8791
@@ -1498,6 +1560,7 @@ Too numerous to mention.
 [#10914]: https://github.com/JuliaLang/julia/issues/10914
 [#10955]: https://github.com/JuliaLang/julia/issues/10955
 [#10994]: https://github.com/JuliaLang/julia/issues/10994
+[#11030]: https://github.com/JuliaLang/julia/issues/11030
 [#11067]: https://github.com/JuliaLang/julia/issues/11067
 [#11105]: https://github.com/JuliaLang/julia/issues/11105
 [#11145]: https://github.com/JuliaLang/julia/issues/11145
@@ -1506,8 +1569,20 @@ Too numerous to mention.
 [#11347]: https://github.com/JuliaLang/julia/issues/11347
 [#11379]: https://github.com/JuliaLang/julia/issues/11379
 [#11432]: https://github.com/JuliaLang/julia/issues/11432
+[#11686]: https://github.com/JuliaLang/julia/issues/11686
 [#11741]: https://github.com/JuliaLang/julia/issues/11741
 [#11891]: https://github.com/JuliaLang/julia/issues/11891
 [#11922]: https://github.com/JuliaLang/julia/issues/11922
 [#11985]: https://github.com/JuliaLang/julia/issues/11985
+[#12025]: https://github.com/JuliaLang/julia/issues/12025
 [#12031]: https://github.com/JuliaLang/julia/issues/12031
+[#12034]: https://github.com/JuliaLang/julia/issues/12034
+[#12087]: https://github.com/JuliaLang/julia/issues/12087
+[#12137]: https://github.com/JuliaLang/julia/issues/12137
+[#12162]: https://github.com/JuliaLang/julia/issues/12162
+[#12264]: https://github.com/JuliaLang/julia/issues/12264
+[#12385]: https://github.com/JuliaLang/julia/issues/12385
+[#12393]: https://github.com/JuliaLang/julia/issues/12393
+[#12458]: https://github.com/JuliaLang/julia/issues/12458
+[#12472]: https://github.com/JuliaLang/julia/issues/12472
+[#12491]: https://github.com/JuliaLang/julia/issues/12491

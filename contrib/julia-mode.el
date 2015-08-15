@@ -209,7 +209,7 @@ This function provides equivalent functionality, but makes no efforts to optimis
    '("Number" "Real" "BigInt" "Integer"
      "UInt" "UInt8" "UInt16" "UInt32" "UInt64" "UInt128"
      "Int" "Int8" "Int16" "Int32" "Int64" "Int128"
-     "BigFloat" "FloatingPoint" "Float16" "Float32" "Float64"
+     "BigFloat" "AbstractFloat" "Float16" "Float32" "Float64"
      "Complex128" "Complex64"
      "Bool"
      "Cuchar" "Cshort" "Cushort" "Cint" "Cuint" "Clonglong" "Culonglong" "Cintmax_t" "Cuintmax_t"
@@ -402,6 +402,8 @@ high.")
 containing paren before point, so we can align succeeding code
 with it. Returns nil if we're not within nested parens."
   (save-excursion
+    ;; Back up to previous line (beginning-of-line was already called)
+    (backward-char)
     (let ((min-pos (max (- (point) julia-max-paren-lookback)
                         (point-min)))
           (open-count 0))
@@ -611,6 +613,14 @@ c"
 # a =
 # b =
 c"))
+
+  (ert-deftest julia--test-indent-leading-paren ()
+    "`(` at the beginning of a line should not affect indentation."
+    (julia--should-indent
+     "
+(1)"
+     "
+(1)"))
 
   (defun julia--run-tests ()
     (interactive)

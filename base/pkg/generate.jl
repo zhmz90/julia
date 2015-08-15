@@ -13,7 +13,7 @@ function git_contributors(dir::AbstractString, n::Int=typemax(Int))
     tty = @windows? "CON:" : "/dev/tty"
     for line in eachline(pipe(tty, Git.cmd(`shortlog -nes`, dir=dir)))
         m = match(r"\s*(\d+)\s+(.+?)\s+\<(.+?)\>\s*$", line)
-        m == nothing && continue
+        m === nothing && continue
         commits, name, email = m.captures
         if haskey(contrib,email)
             contrib[email][1] += parse(Int,commits)
@@ -26,7 +26,7 @@ function git_contributors(dir::AbstractString, n::Int=typemax(Int))
         names[name] = get(names,name,0) + commits
     end
     names = sort!(collect(keys(names)),by=name->names[name],rev=true)
-    length(names) <= n ? names : [names[1:n], "et al."]
+    length(names) <= n ? names : [names[1:n]; "et al."]
 end
 
 function package(
@@ -44,7 +44,7 @@ function package(
             url = isempty(user) ? "" : "git://github.com/$user/$pkg.jl.git"
             Generate.init(pkg,url,config=config)
         else
-            Git.dirty(dir=pkg) && error("$pkg is dirty – commit or stash your changes")
+            Git.dirty(dir=pkg) && error("$pkg is dirty – commit or stash your changes")
         end
 
         Git.transact(dir=pkg) do
@@ -55,7 +55,9 @@ function package(
             Generate.readme(pkg,user,force=force)
             Generate.entrypoint(pkg,force=force)
             Generate.tests(pkg,force=force)
+            Generate.require(pkg,force=force)
             Generate.travis(pkg,force=force)
+            Generate.appveyor(pkg,force=force)
             Generate.gitignore(pkg,force=force)
 
             msg = """
@@ -100,6 +102,8 @@ function init(pkg::AbstractString, url::AbstractString=""; config::Dict=Dict())
     info("Origin: $url")
     Git.run(`remote add origin $url`,dir=pkg)
     Git.set_remote_url(url,dir=pkg)
+    Git.run(`config branch.master.remote origin`, dir=pkg)
+    Git.run(`config branch.master.merge refs/heads/master`, dir=pkg)
 end
 
 function license(pkg::AbstractString, license::AbstractString,
@@ -136,9 +140,31 @@ function tests(pkg::AbstractString; force::Bool=false)
     end
 end
 
+function versionfloor(ver::VersionNumber)
+    # return "major.minor" for the most recent release version relative to ver
+    # for prereleases with ver.minor == ver.patch == 0, return "major-" since we
+    # don't know what the most recent minor version is for the previous major
+    if isempty(ver.prerelease) || ver.patch > 0
+        return string(ver.major, '.', ver.minor)
+    elseif ver.minor > 0
+        return string(ver.major, '.', ver.minor - 1)
+    else
+        return string(ver.major, '-')
+    end
+end
+
+function require(pkg::AbstractString; force::Bool=false)
+    genfile(pkg,"REQUIRE",force) do io
+        print(io, """
+        julia $(versionfloor(VERSION))
+        """)
+    end
+end
+
 function travis(pkg::AbstractString; force::Bool=false)
     genfile(pkg,".travis.yml",force) do io
         print(io, """
+        # Documentation: http://docs.travis-ci.com/user/languages/julia/
         language: julia
         os:
           - linux
@@ -156,10 +182,61 @@ function travis(pkg::AbstractString; force::Bool=false)
     end
 end
 
+function appveyor(pkg::AbstractString; force::Bool=false)
+    vf = versionfloor(VERSION)
+    if vf[end] == '-' # don't know what previous release was
+        vf = string(VERSION.major, '.', VERSION.minor)
+        rel32 = "#  - JULIAVERSION: \"julialang/bin/winnt/x86/$vf/julia-$vf-latest-win32.exe\""
+        rel64 = "#  - JULIAVERSION: \"julialang/bin/winnt/x64/$vf/julia-$vf-latest-win64.exe\""
+    else
+        rel32 = "  - JULIAVERSION: \"julialang/bin/winnt/x86/$vf/julia-$vf-latest-win32.exe\""
+        rel64 = "  - JULIAVERSION: \"julialang/bin/winnt/x64/$vf/julia-$vf-latest-win64.exe\""
+    end
+    genfile(pkg,"appveyor.yml",force) do io
+        print(io, """
+        environment:
+          matrix:
+        $rel32
+        $rel64
+          - JULIAVERSION: "julianightlies/bin/winnt/x86/julia-latest-win32.exe"
+          - JULIAVERSION: "julianightlies/bin/winnt/x64/julia-latest-win64.exe"
+
+        branches:
+          only:
+            - master
+            - /release-.*/
+
+        notifications:
+          - provider: Email
+            on_build_success: false
+            on_build_failure: false
+            on_build_status_changed: false
+
+        install:
+        # Download most recent Julia Windows binary
+          - ps: (new-object net.webclient).DownloadFile(
+                \$("http://s3.amazonaws.com/"+\$env:JULIAVERSION),
+                "C:\\projects\\julia-binary.exe")
+        # Run installer silently, output to C:\\projects\\julia
+          - C:\\projects\\julia-binary.exe /S /D=C:\\projects\\julia
+
+        build_script:
+        # Need to convert from shallow to complete for Pkg.clone to work
+          - IF EXIST .git\\shallow (git fetch --unshallow)
+          - C:\\projects\\julia\\bin\\julia -e "versioninfo();
+              Pkg.clone(pwd(), \\"$pkg\\"); Pkg.build(\\"$pkg\\")"
+
+        test_script:
+          - C:\\projects\\julia\\bin\\julia --check-bounds=yes -e "Pkg.test(\\"$pkg\\")"
+        """)
+    end
+end
+
 function gitignore(pkg::AbstractString; force::Bool=false)
     genfile(pkg,".gitignore",force) do io
         print(io, """
         *.jl.cov
+        *.jl.*.cov
         *.jl.mem
         """)
     end

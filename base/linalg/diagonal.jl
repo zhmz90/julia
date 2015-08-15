@@ -15,7 +15,7 @@ convert{T}(::Type{LowerTriangular}, A::Diagonal{T}) = LowerTriangular(A)
 
 function similar{T}(D::Diagonal, ::Type{T}, d::Tuple{Int,Int})
     if d[1] != d[2]
-        throw(ArgumentError("Diagonal matrix must be square"))
+        throw(ArgumentError("diagonal matrix must be square"))
     end
     return Diagonal{T}(Array(T,d[1]))
 end
@@ -42,8 +42,8 @@ setindex!(D::Diagonal, v, i::Int, j::Int) = (checkbounds(D, i, j); unsafe_setind
 function unsafe_setindex!(D::Diagonal, v, i::Int, j::Int)
     if i == j
         unsafe_setindex!(D.diag, v, i)
-    else
-        v == 0 || throw(ArgumentError("cannot set an off-diagonal index ($i, $j) to a nonzero value ($v)"))
+    elseif v != 0
+        throw(ArgumentError("cannot set an off-diagonal index ($i, $j) to a nonzero value ($v)"))
     end
     D
 end
@@ -55,8 +55,27 @@ isposdef(D::Diagonal) = all(D.diag .> 0)
 
 factorize(D::Diagonal) = D
 
-tril!(D::Diagonal,i::Integer) = i == 0 ? D : zeros(D)
-triu!(D::Diagonal,i::Integer) = i == 0 ? D : zeros(D)
+istriu(D::Diagonal) = true
+istril(D::Diagonal) = true
+function triu!(D::Diagonal,k::Integer=0)
+    n = size(D,1)
+    if abs(k) > n
+        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($n,$n)"))
+    elseif k > 0
+        fill!(D.diag,0)
+    end
+    return D
+end
+
+function tril!(D::Diagonal,k::Integer=0)
+    n = size(D,1)
+    if abs(k) > n
+        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($n,$n)"))
+    elseif k < 0
+        fill!(D.diag,0)
+    end
+    return D
+end
 
 ==(Da::Diagonal, Db::Diagonal) = Da.diag == Db.diag
 -(A::Diagonal)=Diagonal(-A.diag)
@@ -119,6 +138,7 @@ end
 eye{T}(::Type{Diagonal{T}}, n::Int) = Diagonal(ones(T,n))
 
 expm(D::Diagonal) = Diagonal(exp(D.diag))
+logm(D::Diagonal) = Diagonal(log(D.diag))
 sqrtm(D::Diagonal) = Diagonal(sqrt(D.diag))
 
 #Linear solver

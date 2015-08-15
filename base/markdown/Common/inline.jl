@@ -1,7 +1,7 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
 # ––––––––
-# Emphasis
+# Emphasis
 # ––––––––
 
 type Italic
@@ -11,7 +11,7 @@ end
 @trigger '*' ->
 function asterisk_italic(stream::IO, md::MD)
     result = parse_inline_wrapper(stream, "*")
-    return result == nothing ? nothing : Italic(parseinline(result, md))
+    return result === nothing ? nothing : Italic(parseinline(result, md))
 end
 
 type Bold
@@ -21,22 +21,22 @@ end
 @trigger '*' ->
 function asterisk_bold(stream::IO, md::MD)
     result = parse_inline_wrapper(stream, "**")
-    return result == nothing ? nothing : Bold(parseinline(result, md))
+    return result === nothing ? nothing : Bold(parseinline(result, md))
 end
 
 # ––––
-# Code
+# Code
 # ––––
 
 @trigger '`' ->
 function inline_code(stream::IO, md::MD)
     result = parse_inline_wrapper(stream, "`"; rep=true)
-    return result == nothing ? nothing : Code(result)
+    return result === nothing ? nothing : Code(result)
 end
 
-# ––––––––––––––
-# Images & Links
-# ––––––––––––––
+# ––––––––––––––
+# Images & Links
+# ––––––––––––––
 
 type Image
     url::UTF8String
@@ -76,9 +76,9 @@ function link(stream::IO, md::MD)
     end
 end
 
-# –––––––––––
+# –––––––––––
 # Punctuation
-# –––––––––––
+# –––––––––––
 
 type LineBreak end
 

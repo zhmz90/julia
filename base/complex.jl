@@ -34,6 +34,9 @@ real(x::Real) = x
 imag(x::Real) = zero(x)
 reim(z) = (real(z), imag(z))
 
+real{T<:Real}(::Type{T}) = T
+real{T<:Real}(::Type{Complex{T}}) = T
+
 isreal(x::Real) = true
 isreal(z::Complex) = imag(z) == 0
 isimag(z::Number) = real(z) == 0
@@ -56,7 +59,7 @@ function complex_show(io::IO, z::Complex, compact::Bool)
         print(io, compact ? "+" : " + ")
     end
     compact ? showcompact(io, i) : show(io, i)
-    if !(isa(i,Integer) && !isa(i,Bool) || isa(i,FloatingPoint) && isfinite(i))
+    if !(isa(i,Integer) && !isa(i,Bool) || isa(i,AbstractFloat) && isfinite(i))
         print(io, "*")
     end
     print(io, "im")
@@ -104,7 +107,6 @@ abs(z::Complex)  = hypot(real(z), imag(z))
 abs2(z::Complex) = real(z)*real(z) + imag(z)*imag(z)
 inv(z::Complex)  = conj(z)/abs2(z)
 inv{T<:Integer}(z::Complex{T}) = inv(float(z))
-sign(z::Complex) = z/abs(z)
 
 -(z::Complex) = Complex(-real(z), -imag(z))
 +(z::Complex, w::Complex) = Complex(real(z) + real(w), imag(z) + imag(w))
@@ -224,7 +226,7 @@ function inv(w::Complex128)
     return Complex128(p*s,q*s) # undo scaling
 end
 
-function ssqs{T<:FloatingPoint}(x::T, y::T)
+function ssqs{T<:AbstractFloat}(x::T, y::T)
     k::Int = 0
     ρ = x*x + y*y
     if !isfinite(ρ) && (isinf(x) || isinf(y))
@@ -238,7 +240,7 @@ function ssqs{T<:FloatingPoint}(x::T, y::T)
     ρ, k
 end
 
-function sqrt{T<:FloatingPoint}(z::Complex{T})
+function sqrt{T<:AbstractFloat}(z::Complex{T})
     x, y = reim(z)
     if x==y==0
         return Complex(zero(x),y)
@@ -288,7 +290,7 @@ end
 
 angle(z::Complex) = atan2(imag(z), real(z))
 
-function log{T<:FloatingPoint}(z::Complex{T})
+function log{T<:AbstractFloat}(z::Complex{T})
     const T1::T  = 1.25
     const T2::T  = 3
     const ln2::T = log(convert(T,2))  #0.6931471805599453
@@ -402,7 +404,7 @@ function log1p{T}(z::Complex{T})
     end
 end
 
-function ^{T<:FloatingPoint}(z::Complex{T}, p::Complex{T})
+function ^{T<:AbstractFloat}(z::Complex{T}, p::Complex{T})
     if p==2 #square
         zr, zi = reim(z)
         x = (zr-zi)*(zr+zi)
@@ -510,10 +512,10 @@ end
 ^(z::Complex, n::Bool) = n ? z : one(z)
 ^(z::Complex, n::Integer) = z^Complex(n)
 
-^{T<:FloatingPoint}(z::Complex{T}, n::Bool) = n ? z : one(z)  # to resolve ambiguity
+^{T<:AbstractFloat}(z::Complex{T}, n::Bool) = n ? z : one(z)  # to resolve ambiguity
 ^{T<:Integer}(z::Complex{T}, n::Bool) = n ? z : one(z)        # to resolve ambiguity
 
-^{T<:FloatingPoint}(z::Complex{T}, n::Integer) =
+^{T<:AbstractFloat}(z::Complex{T}, n::Integer) =
     n>=0 ? power_by_squaring(z,n) : power_by_squaring(inv(z),-n)
 ^{T<:Integer}(z::Complex{T}, n::Integer) = power_by_squaring(z,n) # DomainError for n<0
 
@@ -563,7 +565,7 @@ function asin(z::Complex)
     Complex(ξ,η)
 end
 
-function acos{T<:FloatingPoint}(z::Complex{T})
+function acos{T<:AbstractFloat}(z::Complex{T})
     zr, zi = reim(z)
     if isnan(zr)
         if isinf(zi) return Complex(zr, -zi)
@@ -604,7 +606,7 @@ function cosh(z::Complex)
     cos(Complex(-zi,zr))
 end
 
-function tanh{T<:FloatingPoint}(z::Complex{T})
+function tanh{T<:AbstractFloat}(z::Complex{T})
     const Ω = prevfloat(typemax(T))
     ξ, η = reim(z)
     if isnan(ξ) && η==0 return Complex(ξ, η) end
@@ -649,7 +651,7 @@ function acosh(z::Complex)
     Complex(ξ, η)
 end
 
-function atanh{T<:FloatingPoint}(z::Complex{T})
+function atanh{T<:AbstractFloat}(z::Complex{T})
     const Ω = prevfloat(typemax(T))
     const θ = sqrt(Ω)/4
     const ρ = 1/θ
@@ -701,13 +703,13 @@ end
 #Requires two different RoundingModes for the real and imaginary components
 
 if WORD_SIZE==32
-function round{T<:FloatingPoint, MR, MI}(z::Complex{T}, ::RoundingMode{MR}, ::RoundingMode{MI})
+function round{T<:AbstractFloat, MR, MI}(z::Complex{T}, ::RoundingMode{MR}, ::RoundingMode{MI})
     Complex((round(real(z), RoundingMode{MR}()),
              round(imag(z), RoundingMode{MI}()))...)
 end
 round(z::Complex) = Complex((round(real(z)), round(imag(z)))...)
 else
-function round{T<:FloatingPoint, MR, MI}(z::Complex{T}, ::RoundingMode{MR}, ::RoundingMode{MI})
+function round{T<:AbstractFloat, MR, MI}(z::Complex{T}, ::RoundingMode{MR}, ::RoundingMode{MI})
     Complex(round(real(z), RoundingMode{MR}()),
             round(imag(z), RoundingMode{MI}()))
 end
@@ -721,11 +723,11 @@ function round(z::Complex, digits::Integer, base::Integer=10)
             round(imag(z), digits, base))
 end
 
-float{T<:FloatingPoint}(z::Complex{T}) = z
+float{T<:AbstractFloat}(z::Complex{T}) = z
 float(z::Complex) = Complex(float(real(z)), float(imag(z)))
 @vectorize_1arg Complex float
 
-big{T<:FloatingPoint}(z::Complex{T}) = Complex{BigFloat}(z)
+big{T<:AbstractFloat}(z::Complex{T}) = Complex{BigFloat}(z)
 big{T<:Integer}(z::Complex{T}) = Complex{BigInt}(z)
 
 ## Array operations on complex numbers ##
@@ -740,11 +742,11 @@ function complex{T}(A::AbstractArray{T})
 end
 
 big{T<:Integer,N}(A::AbstractArray{Complex{T},N}) = convert(AbstractArray{Complex{BigInt},N}, A)
-big{T<:FloatingPoint,N}(A::AbstractArray{Complex{T},N}) = convert(AbstractArray{Complex{BigFloat},N}, A)
+big{T<:AbstractFloat,N}(A::AbstractArray{Complex{T},N}) = convert(AbstractArray{Complex{BigFloat},N}, A)
 
 ## promotion to complex ##
 
-promote_array_type{S<:Union{Complex, Real}, AT<:FloatingPoint}(::Type{S}, ::Type{Complex{AT}}) = Complex{AT}
+promote_array_type{S<:Union{Complex, Real}, AT<:AbstractFloat}(F, ::Type{S}, ::Type{Complex{AT}}) = Complex{AT}
 
 function complex{S<:Real,T<:Real}(A::Array{S}, B::Array{T})
     if size(A) != size(B); throw(DimensionMismatch()); end

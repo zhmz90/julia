@@ -26,6 +26,7 @@
 @test reduce((x,y)->"($x+$y)", 9:11) == "((9+10)+11)"
 @test reduce(max, [8 6 7 5 3 0 9]) == 9
 @test reduce(+, 1000, 1:5) == (1000 + 1 + 2 + 3 + 4 + 5)
+@test reduce(+,1) == 1
 
 @test mapreduce(-, +, [-10 -9 -3]) == ((10 + 9) + 3)
 @test mapreduce((x)->x[1:3], (x,y)->"($x+$y)", ["abcd", "efgh", "01234"]) == "((abc+efg)+012)"
@@ -117,6 +118,8 @@ end
 @test prod(1:big(16)) == big(20922789888000)
 @test prod(big(typemax(Int64)):big(typemax(Int64))+16) == parse(BigInt,"25300281663413827620486300433089141956148633919452440329174083959168114253708467653081909888307573358090001734956158476311046124934597861626299416732205795533726326734482449215730132757595422510465791525610410023802664753402501982524443370512346073948799084936298007821432734720004795146875180123558814648586972474376192000")
 
+@test_throws ErrorException prod(bitunpack(trues(10)))
+
 # check type-stability
 prod2(itr) = invoke(prod, Tuple{Any}, itr)
 @test prod(Int[]) === prod2(Int[]) === 1
@@ -201,6 +204,27 @@ prod2(itr) = invoke(prod, Tuple{Any}, itr)
 @test reduce(&, fill(trues(5), 24))  == trues(5)
 @test reduce(&, fill(falses(5), 24)) == falses(5)
 
+@test_throws TypeError any(x->0, [false])
+@test_throws TypeError all(x->0, [false])
+
+# short-circuiting any and all
+
+let c = [0, 0], A = 1:1000
+    any(x->(c[1]=x; x==10), A)
+    all(x->(c[2]=x; x!=10), A)
+
+    @test c == [10,10]
+end
+
+# any and all with functors
+
+immutable SomeFunctor end
+Base.call(::SomeFunctor, x) = true
+
+@test any(SomeFunctor(), 1:10)
+@test all(SomeFunctor(), 1:10)
+
+
 # in
 
 @test in(1, Int[]) == false
@@ -246,3 +270,8 @@ end
 
 @test sum(collect(map(UInt8,0:255))) == 32640
 @test sum(collect(map(UInt8,254:255))) == 509
+
+# issue #11618
+@test sum([-0.0]) === -0.0
+@test sum([-0.0, -0.0]) === -0.0
+@test prod([-0.0, -0.0]) === 0.0

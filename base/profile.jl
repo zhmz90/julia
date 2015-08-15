@@ -26,11 +26,11 @@ end
 function init(; n::Union{Void,Integer} = nothing, delay::Union{Void,Float64} = nothing)
     n_cur = ccall(:jl_profile_maxlen_data, Csize_t, ())
     delay_cur = ccall(:jl_profile_delay_nsec, UInt64, ())/10^9
-    if n == nothing && delay == nothing
+    if n === nothing && delay === nothing
         return Int(n_cur), delay_cur
     end
-    nnew = (n == nothing) ? n_cur : n
-    delaynew = (delay == nothing) ? delay_cur : delay
+    nnew = (n === nothing) ? n_cur : n
+    delaynew = (delay === nothing) ? delay_cur : delay
     init(nnew, delaynew)
 end
 
@@ -47,11 +47,11 @@ end
 
 clear() = ccall(:jl_profile_clear_data, Void, ())
 
-function print{T<:Unsigned}(io::IO, data::Vector{T} = fetch(), lidict::Dict = getdict(data); format = :tree, C = false, combine = true, cols = Base.tty_size()[2])
+function print{T<:Unsigned}(io::IO, data::Vector{T} = fetch(), lidict::Dict = getdict(data); format = :tree, C = false, combine = true, cols = Base.tty_size()[2], maxdepth::Int = typemax(Int), sortedby::Symbol = :filefuncline)
     if format == :tree
-        tree(io, data, lidict, C, combine, cols)
+        tree(io, data, lidict, C, combine, cols, maxdepth)
     elseif format == :flat
-        flat(io, data, lidict, C, combine, cols)
+        flat(io, data, lidict, C, combine, cols, sortedby)
     else
         throw(ArgumentError("output format $(repr(format)) not recognized"))
     end
@@ -69,11 +69,11 @@ function getdict(data::Vector{UInt})
 end
 
 function callers(funcname::ByteString, bt::Vector{UInt}, lidict; filename = nothing, linerange = nothing)
-    if filename == nothing && linerange == nothing
+    if filename === nothing && linerange === nothing
         return callersf(li -> li.func == funcname, bt, lidict)
     end
-    filename == nothing && throw(ArgumentError("if supplying linerange, you must also supply the filename"))
-    if linerange == nothing
+    filename === nothing && throw(ArgumentError("if supplying linerange, you must also supply the filename"))
+    if linerange === nothing
         return callersf(li -> li.func == funcname && li.file == filename, bt, lidict)
     else
         return callersf(li -> li.func == funcname && li.file == filename && in(li.line, linerange), bt, lidict)
@@ -202,7 +202,7 @@ function parse_flat(iplist, n, lidict, C::Bool)
     lilist, n
 end
 
-function flat{T<:Unsigned}(io::IO, data::Vector{T}, lidict::Dict, C::Bool, combine::Bool, cols::Integer)
+function flat{T<:Unsigned}(io::IO, data::Vector{T}, lidict::Dict, C::Bool, combine::Bool, cols::Integer, sortedby)
     if !C
         data = purgeC(data, lidict)
     end
@@ -212,10 +212,10 @@ function flat{T<:Unsigned}(io::IO, data::Vector{T}, lidict::Dict, C::Bool, combi
         return
     end
     lilist, n = parse_flat(iplist, n, lidict, C)
-    print_flat(io, lilist, n, combine, cols)
+    print_flat(io, lilist, n, combine, cols, sortedby)
 end
 
-function print_flat(io::IO, lilist::Vector{LineInfo}, n::Vector{Int}, combine::Bool, cols::Integer)
+function print_flat(io::IO, lilist::Vector{LineInfo}, n::Vector{Int}, combine::Bool, cols::Integer, sortedby)
     p = liperm(lilist)
     lilist = lilist[p]
     n = n[p]
@@ -232,6 +232,11 @@ function print_flat(io::IO, lilist::Vector{LineInfo}, n::Vector{Int}, combine::B
         keep = n .> 0
         n = n[keep]
         lilist = lilist[keep]
+    end
+    if sortedby == :count
+        p = sortperm(n)
+        n = n[p]
+        lilist = lilist[p]
     end
     wcounts = max(6, ndigits(maximum(n)))
     maxline = 0
@@ -330,7 +335,10 @@ function tree_format(lilist::Vector{LineInfo}, counts::Vector{Int}, level::Int, 
 end
 
 # Print a "branch" starting at a particular level. This gets called recursively.
-function tree{T<:Unsigned}(io::IO, bt::Vector{Vector{T}}, counts::Vector{Int}, lidict::Dict, level::Int, combine::Bool, cols::Integer)
+function tree{T<:Unsigned}(io::IO, bt::Vector{Vector{T}}, counts::Vector{Int}, lidict::Dict, level::Int, combine::Bool, cols::Integer, maxdepth)
+    if level > maxdepth
+        return
+    end
     # Organize backtraces into groups that are identical up to this level
     if combine
         # Combine based on the line information
@@ -401,12 +409,12 @@ function tree{T<:Unsigned}(io::IO, bt::Vector{Vector{T}}, counts::Vector{Int}, l
         keep = len[idx] .> level+1
         if any(keep)
             idx = idx[keep]
-            tree(io, bt[idx], counts[idx], lidict, level+1, combine, cols)
+            tree(io, bt[idx], counts[idx], lidict, level+1, combine, cols, maxdepth)
         end
     end
 end
 
-function tree{T<:Unsigned}(io::IO, data::Vector{T}, lidict::Dict, C::Bool, combine::Bool, cols::Integer)
+function tree{T<:Unsigned}(io::IO, data::Vector{T}, lidict::Dict, C::Bool, combine::Bool, cols::Integer, maxdepth)
     if !C
         data = purgeC(data, lidict)
     end
@@ -418,7 +426,7 @@ function tree{T<:Unsigned}(io::IO, data::Vector{T}, lidict::Dict, C::Bool, combi
     level = 0
     len = Int[length(x) for x in bt]
     keep = len .> 0
-    tree(io, bt[keep], counts[keep], lidict, level, combine, cols)
+    tree(io, bt[keep], counts[keep], lidict, level, combine, cols, maxdepth)
 end
 
 function callersf(matchfunc::Function, bt::Vector{UInt}, lidict)

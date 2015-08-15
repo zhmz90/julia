@@ -57,7 +57,7 @@ end
 
 function norm{T<:BlasFloat, TI<:Integer}(x::StridedVector{T}, rx::Union{UnitRange{TI},Range{TI}})
     if minimum(rx) < 1 || maximum(rx) > length(x)
-        throw(BoundsError())
+        throw(BoundsError(x, rx))
     end
     BLAS.nrm2(length(rx), pointer(x)+(first(rx)-1)*sizeof(T), step(rx))
 end
@@ -71,7 +71,7 @@ vecnorm2{T<:BlasFloat}(x::Union{Array{T},StridedVector{T}}) =
 function triu!(M::AbstractMatrix, k::Integer)
     m, n = size(M)
     if (k > 0 && k > n) || (k < 0 && -k > m)
-        throw(BoundsError())
+        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($m,$n)"))
     end
     idx = 1
     for j = 0:n-1
@@ -89,7 +89,7 @@ triu(M::Matrix, k::Integer) = triu!(copy(M), k)
 function tril!(M::AbstractMatrix, k::Integer)
     m, n = size(M)
     if (k > 0 && k > n) || (k < 0 && -k > m)
-        throw(BoundsError())
+        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($m,$n)"))
     end
     idx = 1
     for j = 0:n-1
@@ -122,7 +122,9 @@ function gradient(F::Vector, h::Vector)
 end
 
 function diagind(m::Integer, n::Integer, k::Integer=0)
-    -m <= k <= n || throw(BoundsError())
+    if !(-m <= k <= n)
+        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($m,$n)"))
+    end
     k <= 0 ? range(1-k, m+1, min(m+k, n)) : range(k*m+1, m+1, min(m, n-k))
 end
 
@@ -189,7 +191,9 @@ expm(x::Number) = exp(x)
 ## "Functions of Matrices: Theory and Computation", SIAM
 function expm!{T<:BlasFloat}(A::StridedMatrix{T})
     n = chksquare(A)
-    n<2 && return exp(A)
+    if ishermitian(A)
+        return full(expm(Hermitian(A)))
+    end
     ilo, ihi, scale = LAPACK.gebal!('B', A)    # modifies A
     nA   = norm(A, 1)
     I    = eye(T,n)
@@ -278,24 +282,71 @@ function rcswap!{T<:Number}(i::Integer, j::Integer, X::StridedMatrix{T})
     end
 end
 
+expm(x::Number) = exp(x)
+
+function logm(A::StridedMatrix)
+    # If possible, use diagonalization
+    if ishermitian(A)
+        return full(logm(Hermitian(A)))
+    end
+
+    # Use Schur decomposition
+    n = chksquare(A)
+    if istriu(A)
+        retmat = full(logm(UpperTriangular(complex(A))))
+        d = diag(A)
+    else
+        S,Q,d = schur(complex(A))
+        R = logm(UpperTriangular(S))
+        retmat = Q * R * Q'
+    end
+
+    # Check whether the matrix has nonpositive real eigs
+    np_real_eigs = false
+    for i = 1:n
+        if imag(d[i]) < eps() && real(d[i]) <= 0
+            np_real_eigs = true
+            break
+        end
+    end
+    if np_real_eigs
+        warn("Matrix with nonpositive real eigenvalues, a nonprincipal matrix logarithm will be returned.")
+    end
+
+    if isreal(A) && ~np_real_eigs
+        return real(retmat)
+    else
+        return retmat
+    end
+end
+logm(a::Number) = (b = log(complex(a)); imag(b) == 0 ? real(b) : b)
+logm(a::Complex) = log(a)
+
 function sqrtm{T<:Real}(A::StridedMatrix{T})
     if issym(A)
-        return sqrtm(Symmetric(A))
+        return full(sqrtm(Symmetric(A)))
     end
     n = chksquare(A)
-    SchurF = schurfact(complex(A))
-    R = full(sqrtm(UpperTriangular(SchurF[:T])))
-    retmat = SchurF[:vectors]*R*SchurF[:vectors]'
-    all(imag(retmat) .== 0) ? real(retmat) : retmat
+    if istriu(A)
+        return full(sqrtm(UpperTriangular(A)))
+    else
+        SchurF = schurfact(complex(A))
+        R = full(sqrtm(UpperTriangular(SchurF[:T])))
+        return SchurF[:vectors] * R * SchurF[:vectors]'
+    end
 end
 function sqrtm{T<:Complex}(A::StridedMatrix{T})
     if ishermitian(A)
-        return sqrtm(Hermitian(A))
+        return full(sqrtm(Hermitian(A)))
     end
     n = chksquare(A)
-    SchurF = schurfact(A)
-    R = full(sqrtm(UpperTriangular(SchurF[:T])))
-    SchurF[:vectors]*R*SchurF[:vectors]'
+    if istriu(A)
+        return full(sqrtm(UpperTriangular(A)))
+    else
+        SchurF = schurfact(A)
+        R = full(sqrtm(UpperTriangular(SchurF[:T])))
+        return SchurF[:vectors] * R * SchurF[:vectors]'
+    end
 end
 sqrtm(a::Number) = (b = sqrt(complex(a)); imag(b) == 0 ? real(b) : b)
 sqrtm(a::Complex) = sqrt(a)

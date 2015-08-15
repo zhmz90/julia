@@ -1,3 +1,5 @@
+# This file is a part of Julia. License is MIT: http://julialang.org/license
+
 # these could fail on an embedded installation
 # but for now, we don't handle that case
 dlls = Libdl.dllist()
@@ -17,6 +19,8 @@ end
 # library handle pointer must not be NULL
 @test_throws ArgumentError Libdl.dlsym(C_NULL, :foo)
 @test_throws ArgumentError Libdl.dlsym_e(C_NULL, :foo)
+
+cd(dirname(@__FILE__)) do
 
 # @test !isempty(Libdl.find_library(["libccalltest"], [dirname(@__FILE__)]))
 
@@ -159,4 +163,6 @@ let dl = C_NULL
     finally
         Libdl.dlclose(dl)
     end
+end
+
 end

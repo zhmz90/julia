@@ -23,6 +23,7 @@ export
     Markdown,
 
 # Types
+    AbstractChannel,
     AbstractMatrix,
     AbstractSparseArray,
     AbstractSparseMatrix,
@@ -40,6 +41,7 @@ export
     BufferStream,
     CartesianIndex,
     CartesianRange,
+    Channel,
     Cmd,
     Colon,
     Complex,
@@ -78,6 +80,7 @@ export
     ObjectIdDict,
     OrdinalRange,
     Pair,
+    PartialQuickSort,
     PollingFileWatcher,
     ProcessGroup,
     QuickSort,
@@ -89,7 +92,6 @@ export
     RemoteRef,
     RepString,
     RevString,
-    RopeString,
     RoundFromZero,
     RoundDown,
     RoundingMode,
@@ -155,14 +157,18 @@ export
 # Exceptions
     ArgumentError,
     DimensionMismatch,
+    CapturedException,
+    CompositeException,
     EOFError,
     ErrorException,
+    InvalidStateException,
     KeyError,
     LoadError,
     MethodError,
     NullException,
     ParseError,
     ProcessExitedException,
+    RemoteException,
     SystemError,
     TypeError,
     AssertionError,
@@ -219,6 +225,7 @@ export
     .-,
     .*,
     ./,
+    .%,
     .<,
     .<=,
     .≤,
@@ -247,6 +254,7 @@ export
     \,
     ^,
     |,
+    |>,
     ~,
     :,
     ÷,
@@ -367,7 +375,6 @@ export
     invdigamma,
     invmod,
     isapprox,
-    iseltype,
     iseven,
     isfinite,
     isinf,
@@ -408,6 +415,7 @@ export
     prevpow2,
     prevprod,
     primes,
+    primesmask,
     rad2deg,
     rationalize,
     real,
@@ -447,6 +455,8 @@ export
     zero,
     √,
     ∛,
+    ≈,
+    ≉,
 
 # specfun
     airy,
@@ -493,6 +503,7 @@ export
     cell,
     checkbounds,
     circshift,
+    clamp!,
     colon,
     conj!,
     copy!,
@@ -592,6 +603,8 @@ export
     sort!,
     sort,
     sortcols,
+    selectperm,
+    selectperm!,
     sortperm,
     sortperm!,
     sortrows,
@@ -659,6 +672,7 @@ export
     linreg,
     logabsdet,
     logdet,
+    logm,
     lu,
     lufact!,
     lufact,
@@ -742,8 +756,6 @@ export
     any!,
     any,
     collect,
-    complement!,
-    complement,
     contains,
     count,
     delete!,
@@ -907,6 +919,7 @@ export
     randexp,
     srand,
     bitrand,
+    randjump,
 
 # bigfloat & precision
     precision,
@@ -916,6 +929,8 @@ export
     get_rounding,
     set_rounding,
     with_rounding,
+    get_zero_subnormals,
+    set_zero_subnormals,
 
 # statistics
     cor,
@@ -1067,7 +1082,6 @@ export
     symbol,
 
 # help and reflection
-    apropos,
     current_module,
     edit,
     code_typed,
@@ -1077,7 +1091,6 @@ export
     code_native,
     fullname,
     functionloc,
-    help,
     isconst,
     isgeneric,
     isinteractive,
@@ -1093,11 +1106,11 @@ export
     workspace,
 
 # loading source files
+    __precompile__,
     evalfile,
     include,
     include_string,
-    reload,
-    require,
+    include_dependency,
 
 # RTS internals
     finalizer,
@@ -1236,6 +1249,7 @@ export
 # shared arrays
     sdata,
     indexpids,
+    localindexes,
 
 # paths and file names
     abspath,
@@ -1316,6 +1330,7 @@ export
     pointer,
     pointer_from_objref,
     pointer_to_array,
+    pointer_to_string,
     reenable_sigint,
     unsafe_copy!,
     unsafe_load,
@@ -1336,6 +1351,7 @@ export
     # notation for certain types
     @b_str,  # byte vector
     @r_str,  # regex
+    @s_str,  # regex substitution string
     @v_str,  # version number
 
     # documentation

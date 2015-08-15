@@ -20,74 +20,7 @@ end
 @doc ("I am a macro";)  :@ModuleMacroDoc.m
 
 @test (@doc ModuleMacroDoc)    == "I am a module"
-@test (@doc ModuleMacroDoc.@m) == ["I am a macro"]
-
-# apropos function testing
-
-@test sprint(apropos, "non-documented object") == "No help information found.\n"
-
-# issue 11438 (partial)
-
-for (typ, name) in [
-    (RoundingMode,   "RoundingMode"),
-    (Dates.DateTime, "DateTime"),
-    (Libc.TmStruct,  "TmStruct")
-    ]
-    @test sprint(help, typ) == sprint(help, name)
-end
-
-module DataTypeHelpTest
-
-module M
-  type T end
-end
-
-module N
-  type T end
-end
-
-module P
-  module R
-    type U end
-    type T end
-  end
-  import .R.T
-end
-
-const mod = string(current_module())
-
-Base.Help.eval(quote
-
-    init_help()
-
-    import $(parse(mod))
-    import $(parse(mod)): M, N, P
-
-    const mod = $mod
-
-    MODULE_DICT["T"] = ["$mod.M","$mod.N","$mod.P"]
-    MODULE_DICT["U"] = ["$mod.P","$mod.P.R"]
-
-    FUNCTION_DICT["$mod.M.T"]   = ["M.T"]
-    FUNCTION_DICT["$mod.N.T"]   = ["N.T"]
-    FUNCTION_DICT["$mod.P.T"]   = ["P.R.T"]
-    FUNCTION_DICT["$mod.P.U"]   = ["P.U"]
-    FUNCTION_DICT["$mod.P.R.U"] = ["P.R.U"]
-
-end)
-
-import Base.Test.@test
-
-@test sprint(help, M.T)   == "M.T\n"
-@test sprint(help, N.T)   == "N.T\n"
-@test sprint(help, P.T)   == "P.R.T\n"
-@test sprint(help, P.R.U) == "P.R.U\n"
-@test sprint(help, "$mod.M.T")   == "M.T\n"
-@test sprint(help, "$mod.N.T")   == "N.T\n"
-@test sprint(help, "$mod.P.T")   == "P.R.T\n"
-@test sprint(help, "$mod.P.R.U") == "P.R.U\n"
-@test sprint(help, "T") == "M.T\n\nN.T\n\nP.R.T\n"
-end
+@test (@doc ModuleMacroDoc.@m) == "I am a macro"
 
 # General tests for docstrings.
 
@@ -130,7 +63,7 @@ immutable IT
 end
 
 "TA"
-typealias TA Union(T, IT)
+typealias TA Union{T, IT}
 
 "@mac"
 macro mac() end
@@ -140,6 +73,19 @@ G = :G
 
 "K"
 const K = :K
+
+# Adding docstrings to methods after definition.
+
+t(x::AbstractString) = x
+t(x::Int, y) = y
+t{S <: Integer}(x::S) = x
+
+"t-1"
+t(::AbstractString)
+"t-2"
+t(::Int, ::Any)
+"t-3"
+t{S <: Integer}(::S)
 
 end
 
@@ -183,17 +129,16 @@ let IT = DocsTest.IT
     @test typedoc.fields[:y] == doc"IT.y"
 end
 
-let TA = DocsTest.TA
-    @test meta(DocsTest)[TA] == doc"TA"
-end
+@test @doc(DocsTest.TA) == doc"TA"
 
-let mac = getfield(DocsTest, symbol("@mac"))
-    funcdoc = meta(DocsTest)[mac]
-    @test funcdoc.main == doc"@mac"
-end
+@test @doc(DocsTest.@mac) == doc"@mac"
 
-@test meta(DocsTest)[:G] == doc"G"
-@test meta(DocsTest)[:K] == doc"K"
+@test @doc(DocsTest.G) == doc"G"
+@test @doc(DocsTest.K) == doc"K"
+
+@test @doc(DocsTest.t(::AbstractString)) == doc"t-1"
+@test @doc(DocsTest.t(::Int, ::Any)) == doc"t-2"
+@test @doc(DocsTest.t{S <: Integer}(::S)) == doc"t-3"
 
 # issue 11993
 # Check if we are documenting the expansion of the macro
@@ -224,3 +169,42 @@ f1_11993()
 @test (@doc f2_11993) !== nothing
 
 f2_11993()
+
+# issue #11798
+
+module I11798
+
+"read"
+read(x) = x
+
+end
+
+let fd = meta(I11798)[I11798.read]
+    @test fd.order[1] == which(I11798.read, Tuple{Any})
+    @test fd.meta[fd.order[1]] == doc"read"
+end
+
+module I12515
+
+immutable EmptyType{T} end
+
+"A new method"
+Base.collect{T}(::Type{EmptyType{T}}) = "borked"
+
+end
+
+let fd = meta(I12515)[Base.collect]
+    @test fd.order[1].sig == Tuple{Type{I12515.EmptyType{TypeVar(:T, Any, true)}}}
+end
+
+
+# PR #12593
+
+"$(1 + 1)"
+f12593_1() = 1
+
+"$(1 + 1) 2"
+f12593_2() = 1
+
+@test (@doc f12593_1) !== nothing
+@test (@doc f12593_2) !== nothing

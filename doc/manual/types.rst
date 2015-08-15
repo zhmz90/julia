@@ -37,7 +37,7 @@ increase both the performance and robustness of these systems, and
 perhaps somewhat counterintuitively, often significantly simplify them.
 
 Describing Julia in the lingo of `type
-systems <http://en.wikipedia.org/wiki/Type_system>`_, it is: dynamic,
+systems <https://en.wikipedia.org/wiki/Type_system>`_, it is: dynamic,
 nominative and parametric. Generic types can be parameterized,
 and the hierarchical relationships
 between types are explicitly declared, rather than implied by compatible
@@ -92,7 +92,7 @@ operator is read as "is an instance of". It can be used
 anywhere to assert that the value of the expression on the left is an
 instance of the type on the right. When the type on the right is
 concrete, the value on the left must have that type as its
-implementation — recall that all concrete types are final, so no
+implementation — recall that all concrete types are final, so no
 implementation is a subtype of any other. When the type is abstract, it
 suffices for the value to be implemented by a concrete type that is a
 subtype of the abstract type. If the type assertion is not true, an
@@ -100,8 +100,8 @@ exception is thrown, otherwise, the left-hand value is returned:
 
 .. doctest::
 
-    julia> (1+2)::FloatingPoint
-    ERROR: TypeError: typeassert: expected FloatingPoint, got Int64
+    julia> (1+2)::AbstractFloat
+    ERROR: TypeError: typeassert: expected AbstractFloat, got Int64
 
     julia> (1+2)::Int
     3
@@ -177,7 +177,7 @@ to make sense, for example, only if its arguments are some kind of integer,
 but not really depend on what particular *kind* of integer.  For example,
 the greatest common denominator algorithm works for all kinds of integers,
 but will not work for floating-point numbers.  Abstract types allow the
-construction of a hierarchy of types, providing a context into which
+construction of a hierarchy of types, providing a context into which
 concrete types can fit.  This allows you, for example, to easily program to
 any type that is an integer, without restricting an algorithm to a specific
 type of integer.
@@ -206,7 +206,7 @@ hierarchy::
 
     abstract Number
     abstract Real     <: Number
-    abstract FloatingPoint <: Real
+    abstract AbstractFloat <: Real
     abstract Integer  <: Real
     abstract Signed   <: Integer
     abstract Unsigned <: Integer
@@ -214,10 +214,10 @@ hierarchy::
 The :obj:`Number` type is a direct child type of :obj:`Any`, and :obj:`Real` is
 its child. In turn, :obj:`Real` has two children (it has more, but only two
 are shown here; we'll get to the others later): :class:`Integer` and
-:class:`FloatingPoint`, separating the world into representations of integers and
+:class:`AbstractFloat`, separating the world into representations of integers and
 representations of real numbers. Representations of real numbers
 include, of course, floating-point types, but also include other types,
-such as rationals. Hence, :class:`FloatingPoint` is a proper subtype of
+such as rationals. Hence, :class:`AbstractFloat` is a proper subtype of
 :obj:`Real`, including only floating-point representations of real numbers.
 Integers are further subdivided into :obj:`Signed` and :obj:`Unsigned`
 varieties.
@@ -233,7 +233,7 @@ subtype of its right operand:
     julia> Integer <: Number
     true
 
-    julia> Integer <: FloatingPoint
+    julia> Integer <: AbstractFloat
     false
 
 An important use of abstract types is to provide default implementations for
@@ -281,9 +281,9 @@ Unlike most languages, Julia lets you declare your own bits types,
 rather than providing only a fixed set of built-in bits types. In fact,
 the standard bits types are all defined in the language itself::
 
-    bitstype 16 Float16 <: FloatingPoint
-    bitstype 32 Float32 <: FloatingPoint
-    bitstype 64 Float64 <: FloatingPoint
+    bitstype 16 Float16 <: AbstractFloat
+    bitstype 32 Float32 <: AbstractFloat
+    bitstype 64 Float64 <: AbstractFloat
 
     bitstype 8  Bool <: Integer
     bitstype 32 Char
@@ -332,7 +332,7 @@ differently than :class:`Int8` or :class:`UInt8`.
 Composite Types
 ---------------
 
-`Composite types <http://en.wikipedia.org/wiki/Composite_data_type>`_
+`Composite types <https://en.wikipedia.org/wiki/Composite_data_type>`_
 are called records, structures (``struct``\ s in C), or objects in various
 languages. A composite type is a collection of named fields, an instance
 of which can be treated as a single value. In many languages, composite
@@ -401,7 +401,7 @@ However, the value for ``baz`` must be convertible to :class:`Int`:
 
     julia> Foo((), 23.5, 1)
     ERROR: InexactError()
-     in call at no file
+     in call at none:2
 
 You may find a list of field names using the ``fieldnames`` function.
 
@@ -580,7 +580,7 @@ parametric: types can take parameters, so that type declarations
 actually introduce a whole family of new types — one for each possible
 combination of parameter values. There are many languages that support
 some version of `generic
-programming <http://en.wikipedia.org/wiki/Generic_programming>`_, wherein
+programming <https://en.wikipedia.org/wiki/Generic_programming>`_, wherein
 data structures and algorithms to manipulate them may be specified
 without specifying the exact types involved. For example, some form of
 generic programming exists in ML, Haskell, Ada, Eiffel, C++, Java, C#,
@@ -705,8 +705,8 @@ The efficiency gained by being able to store ``Point{Float64}`` objects
 with immediate values is magnified enormously in the case of arrays: an
 ``Array{Float64}`` can be stored as a contiguous memory block of 64-bit
 floating-point values, whereas an ``Array{Real}`` must be an array of
-pointers to individually allocated :obj:`Real` objects — which may well be
-`boxed <http://en.wikipedia.org/wiki/Object_type_%28object-oriented_programming%29#Boxing>`_
+pointers to individually allocated :obj:`Real` objects — which may well be
+`boxed <https://en.wikipedia.org/wiki/Object_type_%28object-oriented_programming%29#Boxing>`_
 64-bit floating-point values, but also might be arbitrarily large,
 complex objects, which are declared to be implementations of the
 :obj:`Real` abstract type.
@@ -744,7 +744,7 @@ each field:
       Point{T}(::Any, !Matched::Any)
       call{T}(::Type{T}, ::Any)
       convert{T}(::Type{T}, !Matched::T)
-     in call at base.jl:40
+     in call at essentials.jl:56
 
     julia> Point{Float64}(1.0,2.0,3.0)
     ERROR: MethodError: `convert` has no method matching convert(::Type{Point{Float64}}, ::Float64, ::Float64, ::Float64)
@@ -754,7 +754,7 @@ each field:
       Point{T}(::Any, ::Any)
       call{T}(::Type{T}, ::Any)
       convert{T}(::Type{T}, !Matched::T)
-     in call at base.jl:41
+     in call at essentials.jl:57
 
 Only one default constructor is generated for parametric types, since
 overriding it is not possible. This constructor accepts any arguments
@@ -794,7 +794,7 @@ isn't the case, the constructor will fail with a :exc:`MethodError`:
       Point{T}(::T, !Matched::T)
       call{T}(::Type{T}, ::Any)
       convert{T}(::Type{T}, !Matched::T)
-     in call at base.jl:41
+     in call at essentials.jl:57
 
 Constructor methods to appropriately handle such mixed cases can be
 defined, but that will not be discussed until later on in
@@ -933,7 +933,7 @@ of integers represents a value on the real number line, so any
 Tuple Types
 ~~~~~~~~~~~
 
-Tuples are an abstraction of the arguments of a function — without the
+Tuples are an abstraction of the arguments of a function — without the
 function itself. The salient aspects of a function's arguments are their
 order and their types. Therefore a tuple type is similar to a
 parameterized immutable type where each parameter is the type
@@ -1082,7 +1082,7 @@ like this::
 
 The slightly odd feature of these declarations as compared to typical
 parametric composite types, is that the type parameter ``T`` is not used
-in the definition of the type itself — it is just an abstract tag,
+in the definition of the type itself — it is just an abstract tag,
 essentially defining an entire family of types with identical structure,
 differentiated only by their type parameter. Thus, ``Ptr{Float64}`` and
 ``Ptr{Int64}`` are distinct types, even though they have identical
@@ -1121,8 +1121,8 @@ This is accomplished via the following code in ``base/boot.jl``::
         typealias UInt UInt32
     end
 
-Of course, this depends on what :class:`Int` is aliased to — but that is
-predefined to be the correct type — either :class:`Int32` or :class:`Int64`.
+Of course, this depends on what :class:`Int` is aliased to — but that is
+predefined to be the correct type — either :class:`Int32` or :class:`Int64`.
 
 For parametric types, ``typealias`` can be convenient for providing
 names for cases where some of the parameter choices are fixed.
@@ -1146,8 +1146,8 @@ For that reason, the following type aliases are provided::
 
 Writing ``Vector{Float64}`` is equivalent to writing
 ``Array{Float64,1}``, and the umbrella type ``Vector`` has as instances
-all ``Array`` objects where the second parameter — the number of array
-dimensions — is 1, regardless of what the element type is. In languages
+all ``Array`` objects where the second parameter — the number of array
+dimensions — is 1, regardless of what the element type is. In languages
 where parametric types must always be specified in full, this is not
 especially helpful, but in Julia, this allows one to write just
 ``Matrix`` for the abstract type including all two-dimensional dense
@@ -1181,7 +1181,7 @@ true or false:
     julia> isa(1,Int)
     true
 
-    julia> isa(1,FloatingPoint)
+    julia> isa(1,AbstractFloat)
     false
 
 The :func:`typeof` function, already used throughout the manual in examples,
@@ -1197,7 +1197,7 @@ objects, they also have types, and we can ask what their types are:
     DataType
 
     julia> typeof(Union{Real,ASCIIString})
-    UnionType
+    Union
 
 What if we repeat the process? What is the type of a type of a type?
 As it happens, types are all composite values and thus all have a type of
@@ -1220,7 +1220,7 @@ Only declared types (:obj:`DataType`) have unambiguous supertypes:
 .. doctest::
 
     julia> super(Float64)
-    FloatingPoint
+    AbstractFloat
 
     julia> super(Number)
     Any

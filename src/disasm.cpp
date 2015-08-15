@@ -79,6 +79,7 @@
 #endif
 
 #include "julia.h"
+#include "julia_internal.h"
 
 using namespace llvm;
 
@@ -203,9 +204,6 @@ const char *SymbolLookup(void *DisInfo,
     return NULL;
 }
 
-extern "C" void jl_getFunctionInfo
-  (const char **name, size_t *line, const char **filename, uintptr_t pointer,
-   int *fromC, int skipC);
 int OpInfoLookup(void *DisInfo, uint64_t PC,
                  uint64_t Offset, uint64_t Size,
                  int TagType, void *TagBuf)
@@ -229,11 +227,12 @@ int OpInfoLookup(void *DisInfo, uint64_t PC,
     default: return 0;          // Cannot handle input address size
     }
     int skipC = 0;
-    const char *name;
+    char *name;
     size_t line;
-    const char *filename;
+    char *filename;
     int fromC;
     jl_getFunctionInfo(&name, &line, &filename, pointer, &fromC, skipC);
+    free(filename);
     if (!name)
         return 0;               // Did not find symbolic information
     // Describe the symbol
@@ -324,7 +323,7 @@ void jl_dump_asm_internal(uintptr_t Fptr, size_t Fsize, size_t slide,
     OwningPtr<MCDisassembler> DisAsm(TheTarget->createMCDisassembler(*STI));
 #endif
     if (!DisAsm) {
-        jl_printf(JL_STDERR, "error: no disassembler for target %s\n",
+        jl_printf(JL_STDERR, "ERROR: no disassembler for target %s\n",
                   TripleName.c_str());
         return;
     }

@@ -4,35 +4,16 @@
     _getenv(var::AbstractString) = ccall(:getenv, Ptr{UInt8}, (Cstring,), var)
     _hasenv(s::AbstractString) = _getenv(s) != C_NULL
 end
+
 @windows_only begin
 const ERROR_ENVVAR_NOT_FOUND = UInt32(203)
-const FORMAT_MESSAGE_ALLOCATE_BUFFER = UInt32(0x100)
-const FORMAT_MESSAGE_FROM_SYSTEM = UInt32(0x1000)
-const FORMAT_MESSAGE_IGNORE_INSERTS = UInt32(0x200)
-const FORMAT_MESSAGE_MAX_WIDTH_MASK = UInt32(0xFF)
-GetLastError() = ccall(:GetLastError,stdcall,UInt32,())
-function FormatMessage(e=GetLastError())
-    lpMsgBuf = Array(Ptr{UInt16})
-    lpMsgBuf[1] = 0
-    len = ccall(:FormatMessageW,stdcall,UInt32,(Cint, Ptr{Void}, Cint, Cint, Ptr{Ptr{UInt16}}, Cint, Ptr{Void}),
-        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_MAX_WIDTH_MASK,
-        C_NULL, e, 0, lpMsgBuf, 0, C_NULL)
-    p = lpMsgBuf[1]
-    len == 0 && return utf8("")
-    len = len + 1
-    buf = Array(UInt16, len)
-    unsafe_copy!(pointer(buf), p, len)
-    ccall(:LocalFree,stdcall,Ptr{Void},(Ptr{Void},),p)
-    return utf8(UTF16String(buf))
-end
-
 _getenvlen(var::AbstractString) = ccall(:GetEnvironmentVariableW,stdcall,UInt32,(Cwstring,Ptr{UInt8},UInt32),var,C_NULL,0)
-_hasenv(s::AbstractString) = _getenvlen(s)!=0 || GetLastError()!=ERROR_ENVVAR_NOT_FOUND
+_hasenv(s::AbstractString) = _getenvlen(s)!=0 || Libc.GetLastError()!=ERROR_ENVVAR_NOT_FOUND
 function _jl_win_getenv(s::UTF16String,len::UInt32)
     val=zeros(UInt16,len)
     ret=ccall(:GetEnvironmentVariableW,stdcall,UInt32,(Cwstring,Ptr{UInt16},UInt32),s,val,len)
     if (ret == 0 && len != 1) || ret != len-1 || val[end] != 0
-        error(string("getenv: ", s, ' ', len, "-1 != ", ret, ": ", FormatMessage()))
+        error(string("getenv: ", s, ' ', len, "-1 != ", ret, ": ", Libc.FormatMessage()))
     end
     val
 end
@@ -50,7 +31,7 @@ macro accessEnv(var,errorcase)
         let var = utf16($(esc(var)))
             len=_getenvlen(var)
             if len == 0
-                if GetLastError() != ERROR_ENVVAR_NOT_FOUND
+                if Libc.GetLastError() != ERROR_ENVVAR_NOT_FOUND
                     return utf8("")
                 else
                     $(esc(errorcase))
@@ -114,19 +95,19 @@ push!(::EnvHash, k::AbstractString, v) = setindex!(ENV, v, k)
 
 @unix_only begin
 start(::EnvHash) = 0
-done(::EnvHash, i) = (ccall(:jl_environ, Any, (Int32,), i) == nothing)
+done(::EnvHash, i) = (ccall(:jl_environ, Any, (Int32,), i) === nothing)
 
 function next(::EnvHash, i)
     env = ccall(:jl_environ, Any, (Int32,), i)
-    if env == nothing
+    if env === nothing
         throw(BoundsError())
     end
     env::ByteString
     m = match(r"^(.*?)=(.*)$"s, env)
-    if m == nothing
+    if m === nothing
         error("malformed environment entry: $env")
     end
-    (ByteString[convert(typeof(env),x) for x in m.captures], i+1)
+    (Pair{ByteString,ByteString}(m.captures[1], m.captures[2]), i+1)
 end
 end
 
@@ -147,10 +128,10 @@ function next(hash::EnvHash, block::Tuple{Ptr{UInt16},Ptr{UInt16}})
     unsafe_copy!(pointer(buf), pos, len)
     env = utf8(UTF16String(buf))
     m = match(r"^(=?[^=]+)=(.*)$"s, env)
-    if m == nothing
+    if m === nothing
         error("malformed environment entry: $env")
     end
-    (ByteString[convert(typeof(env),x) for x in m.captures], (pos+len*2, blk))
+    (Pair{ByteString,ByteString}(m.captures[1], m.captures[2]), (pos+len*2, blk))
 end
 end
 
@@ -174,12 +155,12 @@ function withenv{T<:AbstractString}(f::Function, keyvals::Pair{T}...)
     old = Dict{T,Any}()
     for (key,val) in keyvals
         old[key] = get(ENV,key,nothing)
-        val != nothing ? (ENV[key]=val) : _unsetenv(key)
+        val !== nothing ? (ENV[key]=val) : _unsetenv(key)
     end
     try f()
     finally
         for (key,val) in old
-            val != nothing ? (ENV[key]=val) : _unsetenv(key)
+            val !== nothing ? (ENV[key]=val) : _unsetenv(key)
         end
     end
 end

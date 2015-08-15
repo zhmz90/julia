@@ -1186,6 +1186,7 @@ function enter_prefix_search(s::MIState, p::PrefixHistoryPrompt, backward::Bool)
     transition(s, p) do
         pss = state(s, p)
         pss.parent = parent
+        pss.histprompt.parent_prompt = parent
         pss.prefix = bytestring(pointer(buf.data), position(buf))
         copybuf!(pss.response_buffer, buf)
         pss.indent = state(s, parent).indent
@@ -1325,6 +1326,26 @@ function commit_line(s)
     state(s, mode(s)).ias = InputAreaState(0, 0)
 end
 
+"""
+`Base.LineEdit.tabwidth` controls the presumed tab width of code pasted into the REPL.
+
+You can modify it by doing `eval(Base.LineEdit, :(tabwidth = 4))`, for example.
+
+Must satisfy `0 < tabwidth <= 16`.
+"""
+global tabwidth = 8
+
+function bracketed_paste(s)
+    ps = state(s, mode(s))
+    input = readuntil(ps.terminal, "\e[201~")[1:(end-6)]
+    input = replace(input, '\r', '\n')
+    if position(buffer(s)) == 0
+        indent = Base.indentation(input; tabwidth=tabwidth)[1]
+        input = Base.unindent(input[(indent+1):end], indent; tabwidth=tabwidth)
+    end
+    input
+end
+
 const default_keymap =
 AnyDict(
     # Tab
@@ -1428,13 +1449,7 @@ AnyDict(
     "\e[3~" => (s,o...)->edit_delete(s),
     # Bracketed Paste Mode
     "\e[200~" => (s,o...)->begin
-        ps = state(s, mode(s))
-        input = readuntil(ps.terminal, "\e[201~")[1:(end-6)]
-        input = replace(input, '\r', '\n')
-        if position(buffer(s)) == 0
-            indent = Base.indentation(input)[1]
-            input = Base.unindent(input[(indent+1):end], indent)
-        end
+        input = bracketed_paste(s)
         edit_insert(s, input)
     end,
     "^T" => (s,o...)->edit_transpose(s)

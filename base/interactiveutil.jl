@@ -24,7 +24,7 @@ function edit(file::AbstractString, line::Integer)
     issrc = length(file)>2 && file[end-2:end] == ".jl"
     if issrc
         f = find_source_file(file)
-        f != nothing && (file = f)
+        f !== nothing && (file = f)
     end
     const no_line_msg = "Unknown editor: no line number information passed.\nThe method is defined at line $line."
     if startswith(edname, "emacs") || edname == "gedit"
@@ -48,14 +48,15 @@ function edit(file::AbstractString, line::Integer)
     nothing
 end
 
-function edit( m::Method )
+function edit(m::Method)
     tv, decls, file, line = arg_decl_parts(m)
-    edit( string(file), line )
+    edit(string(file), line)
 end
 
 edit(file::AbstractString) = edit(file, 1)
-edit(f::Callable)          = edit(functionloc(f)...)
-edit(f::Callable, t::ANY)  = edit(functionloc(f,t)...)
+edit(f)          = edit(functionloc(f)...)
+edit(f, t::ANY)  = edit(functionloc(f,t)...)
+edit(file, line::Integer) = error("could not find source file for function")
 
 # terminal pager
 
@@ -65,8 +66,9 @@ function less(file::AbstractString, line::Integer)
 end
 
 less(file::AbstractString) = less(file, 1)
-less(f::Callable)          = less(functionloc(f)...)
-less(f::Callable, t::ANY)  = less(functionloc(f,t)...)
+less(f)          = less(functionloc(f)...)
+less(f, t::ANY)  = less(functionloc(f,t)...)
+less(file, line::Integer) = error("could not find source file for function")
 
 # clipboard copy and paste
 
@@ -203,24 +205,24 @@ versioninfo(verbose::Bool) = versioninfo(STDOUT,verbose)
 # displaying type-ambiguity warnings
 
 function code_warntype(io::IO, f, t::ANY)
-    global show_expr_type_emphasize
-    global may_show_expr_type_emphasize
-    state = show_expr_type_emphasize::Bool
-    ct = code_typed(f, t)
-    show_expr_type_emphasize::Bool = may_show_expr_type_emphasize::Bool = true
-    for ast in ct
-        println(io, "Variables:")
-        vars = ast.args[2][1]
-        for v in vars
-            print(io, "  ", v[1])
-            show_expr_type(io, v[2])
+    task_local_storage(:TYPEEMPHASIZE, true)
+    try
+        ct = code_typed(f, t)
+        for ast in ct
+            println(io, "Variables:")
+            vars = ast.args[2][1]
+            for v in vars
+                print(io, "  ", v[1])
+                show_expr_type(io, v[2])
+                print(io, '\n')
+            end
+            print(io, "\nBody:\n  ")
+            show_unquoted(io, ast.args[3], 2)
             print(io, '\n')
         end
-        print(io, "\nBody:\n  ")
-        show_unquoted(io, ast.args[3], 2)
-        print(io, '\n')
+    finally
+        task_local_storage(:TYPEEMPHASIZE, false)
     end
-    show_expr_type_emphasize::Bool = may_show_expr_type_emphasize::Bool = false
     nothing
 end
 code_warntype(f, t::ANY) = code_warntype(STDOUT, f, t)
@@ -236,11 +238,11 @@ function gen_call_with_extracted_types(fcn, ex0)
         return Expr(:call, fcn, esc(args[1]),
                     Expr(:call, :typesof, map(esc, args[2:end])...))
     end
-    if isa(ex0, Expr) && ex0.head == :call
-        return Expr(:call, fcn, esc(ex0.args[1]),
-                    Expr(:call, :typesof, map(esc, ex0.args[2:end])...))
-    end
     ex = expand(ex0)
+    if isa(ex, Expr) && ex.head == :call
+        return Expr(:call, fcn, esc(ex.args[1]),
+                    Expr(:call, :typesof, map(esc, ex.args[2:end])...))
+    end
     exret = Expr(:call, :error, "expression is not a function call or symbol")
     if !isa(ex, Expr)
         # do nothing -> error
@@ -293,7 +295,7 @@ function methodswith(t::Type, f::Function, showparents::Bool=false, meths = Meth
         return meths
     end
     d = f.env.defs
-    while d != nothing
+    while d !== nothing
         if any(x -> (type_close_enough(x, t) ||
                      (showparents ? (t <: x && (!isa(x,TypeVar) || x.ub != Any)) :
                       (isa(x,TypeVar) && x.ub != Any && t == x.ub)) &&
@@ -385,7 +387,6 @@ function workspace()
          Expr(:toplevel,
               :(const Base = $(Expr(:quote, b))),
               :(const LastMain = $(Expr(:quote, last)))))
-    empty!(package_list)
     empty!(package_locks)
     nothing
 end

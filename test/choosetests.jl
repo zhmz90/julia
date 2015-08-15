@@ -21,7 +21,7 @@ function choosetests(choices = [])
         "arrayops", "tuple", "subarray", "reduce", "reducedim", "random",
         "abstractarray", "intfuncs", "simdloop", "blas", "sparse",
         "bitarray", "copy", "math", "fastmath", "functional",
-        "operators", "path", "ccall", "parse",
+        "operators", "path", "ccall", "parse", "loading",
         "bigint", "sorting", "statistics", "spawn", "backtrace",
         "priorityqueue", "file", "mmap", "version", "resolve",
         "pollfd", "mpfr", "broadcast", "complex", "socket",
@@ -31,7 +31,8 @@ function choosetests(choices = [])
         "replutil", "sets", "test", "goto", "llvmcall", "grisu",
         "nullable", "meta", "profile", "libgit2", "docs", "markdown",
         "base64", "serialize", "functors", "misc",
-        "enums", "cmdlineargs", "i18n", "workspace", "libdl", "int"
+        "enums", "cmdlineargs", "i18n", "workspace", "libdl", "int",
+        "intset", "floatfuncs", "compile"
     ]
 
     if Base.USE_GPL_LIBS
@@ -61,11 +62,13 @@ function choosetests(choices = [])
         tests = testnames
     end
 
-    linalgtests = ["linalg1", "linalg2", "linalg3", "linalg4",
-                   "linalg/lapack", "linalg/triangular", "linalg/tridiag",
-                   "linalg/bidiag", "linalg/diagonal", "linalg/dense",
-                   "linalg/pinv", "linalg/givens", "linalg/cholesky",
-                   "linalg/lu", "linalg/symmetric", "linalg/generic"]
+    linalgtests = ["linalg/triangular", "linalg/qr", "linalg/dense",
+                   "linalg/matmul", "linalg/schur", "linalg/special",
+                   "linalg/eigen", "linalg/bunchkaufman", "linalg/svd",
+                   "linalg/lapack", "linalg/tridiag", "linalg/bidiag",
+                   "linalg/diagonal", "linalg/pinv", "linalg/givens",
+                   "linalg/cholesky", "linalg/lu", "linalg/symmetric",
+                   "linalg/generic", "linalg/uniformscaling"]
     if Base.USE_GPL_LIBS
         push!(linalgtests, "linalg/arnoldi")
     end

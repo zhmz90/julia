@@ -13,12 +13,12 @@ Since code is represented by objects that can be created and manipulated
 from within the language, it is possible for a program to transform and
 generate its own code. This allows sophisticated code generation
 without extra build steps, and also allows true Lisp-style macros operating at
-the level of `abstract syntax trees <http://en.wikipedia.org/wiki/Abstract_syntax_tree>`_.
+the level of `abstract syntax trees <https://en.wikipedia.org/wiki/Abstract_syntax_tree>`_.
 In contrast, preprocessor "macro" systems, like that of C and C++, perform
 textual manipulation and substitution before any actual parsing or
 interpretation occurs. Because all data types and code in Julia
 are represented by Julia data structures, powerful
-`reflection <http://en.wikipedia.org/wiki/Reflection_%28computer_programming%29>`_
+`reflection <https://en.wikipedia.org/wiki/Reflection_%28computer_programming%29>`_
 capabilities are available to explore the internals of a program and its types
 just like any other data.
 
@@ -34,7 +34,7 @@ Every Julia program starts life as a string:
 
 **What happens next?**
 
-The next step is to `parse <http://en.wikipedia.org/wiki/Parsing#Computer_languages>`_
+The next step is to `parse <https://en.wikipedia.org/wiki/Parsing#Computer_languages>`_
 each string into an object called an expression, represented by the Julia type
 :obj:`Expr`:
 
@@ -49,7 +49,7 @@ each string into an object called an expression, represented by the Julia type
 :obj:`Expr` objects contain three parts:
 
 - a ``Symbol`` identifying the kind of expression. A symbol is an
-  `interned string <http://en.wikipedia.org/wiki/String_interning>`_
+  `interned string <https://en.wikipedia.org/wiki/String_interning>`_
   identifier (more discussion below).
 
 .. doctest::
@@ -76,7 +76,7 @@ each string into an object called an expression, represented by the Julia type
     Any
 
 Expressions may also be constructed directly in
-`prefix notation <http://en.wikipedia.org/wiki/Polish_notation>`_:
+`prefix notation <https://en.wikipedia.org/wiki/Polish_notation>`_:
 
 .. doctest::
 
@@ -116,7 +116,7 @@ objects:
     :((4 + 4) / 2)
 
 Another way to view expressions is with Meta.show_sexpr, which displays the
-`S-expression <http://en.wikipedia.org/wiki/S-expression>`_ form of a given
+`S-expression <https://en.wikipedia.org/wiki/S-expression>`_ form of a given
 :obj:`Expr`, which may look very familiar to users of Lisp. Here's an example
 illustrating the display on a nested :obj:`Expr`::
 
@@ -127,7 +127,7 @@ Symbols
 ~~~~~~~
 
 The ``:`` character has two syntactic purposes in Julia. The first form creates a
-:obj:`Symbol`, an `interned string <http://en.wikipedia.org/wiki/String_interning>`_
+:obj:`Symbol`, an `interned string <https://en.wikipedia.org/wiki/String_interning>`_
 used as one building-block of expressions:
 
 .. doctest::
@@ -307,7 +307,7 @@ at global scope using :func:`eval`:
 Every :ref:`module <man-modules>` has its own :func:`eval` function that
 evaluates expressions in its global scope.
 Expressions passed to :func:`eval` are not limited to returning values
-— they can also have side-effects that alter the state of the enclosing
+— they can also have side-effects that alter the state of the enclosing
 module's environment:
 
 .. doctest::
@@ -452,7 +452,7 @@ We can view the quoted return expression using the function :func:`macroexpand`
 (**important note:** this is an extremely useful tool for debugging macros)::
 
     julia> ex = macroexpand( :(@sayhello("human")) )
-    :(println("Hello, ","human","!"))
+    :(println("Hello, ","human"))
                         ^^^^^^^
                         interpolated: now a literal string
 
@@ -590,14 +590,14 @@ function:
     :(if a == b
             nothing
         else
-            Base.throw(Base.AssertionError("a == b"))
+            Base.throw(Base.Main.Base.AssertionError("a == b"))
         end)
 
     julia> macroexpand(:(@assert a==b "a should equal b!"))
     :(if a == b
             nothing
         else
-            Base.throw(Base.AssertionError("a should equal b!"))
+            Base.throw(Base.Main.Base.AssertionError("a should equal b!"))
         end)
 
 There is yet another case that the actual :obj:`@assert` macro handles: what
@@ -643,7 +643,7 @@ Hygiene
 ~~~~~~~
 
 An issue that arises in more complex macros is that of
-`hygiene <http://en.wikipedia.org/wiki/Hygienic_macro>`_. In short, macros must
+`hygiene <https://en.wikipedia.org/wiki/Hygienic_macro>`_. In short, macros must
 ensure that the variables they introduce in their returned expressions do not
 accidentally clash with existing variables in the surrounding code they expand
 into. Conversely, the expressions that are passed into a macro as arguments are
@@ -754,7 +754,7 @@ operators on three arguments in terms of their 2-argument forms::
     end
 
 In this manner, Julia acts as its own `preprocessor
-<http://en.wikipedia.org/wiki/Preprocessor>`_, and allows code
+<https://en.wikipedia.org/wiki/Preprocessor>`_, and allows code
 generation from inside the language. The above code could be written
 slightly more tersely using the ``:`` prefix quoting form::
 
@@ -868,7 +868,7 @@ is implemented with the following innocuous-looking macro::
 Of course, a large amount of complexity is hidden in the functions used
 in this macro definition, but they are just functions, written
 entirely in Julia. You can read their source and see precisely what they
-do — and all they do is construct expression objects to be inserted into
+do — and all they do is construct expression objects to be inserted into
 your program's syntax tree.
 
 Generated functions

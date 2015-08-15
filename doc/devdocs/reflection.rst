@@ -52,12 +52,12 @@ one of these fields is the ``types`` field observed in the example above.
 .. rubric:: Subtypes
 
 The *direct* subtypes of any :obj:`DataType` may be listed using
-:func:`subtypes`. For example, the abstract :obj:`DataType` :obj:`FloatingPoint`
+:func:`subtypes`. For example, the abstract :obj:`DataType` :obj:`AbstractFloat`
 has four (concrete) subtypes:
 
 .. doctest::
 
-    julia> subtypes(FloatingPoint)
+    julia> subtypes(AbstractFloat)
     4-element Array{Any,1}:
      Base.MPFR.BigFloat
      Float16
@@ -104,9 +104,10 @@ variable assignments:
 .. doctest::
 
    julia> expand( :(f() = 1) )
-   :($(Expr(:method, :f, :((top(svec))((top(apply_type))(Tuple),(top(svec))())), AST(:($(Expr(:lambda, Any[], Any[Any[],Any[],Any[],0], :(begin  # none, line 1:
+   :($(Expr(:method, :f, :((top(svec))((top(apply_type))(Tuple),(top(svec))())), AST(:($(Expr(:lambda, Any[], Any[Any[],Any[],0,Any[]], :(begin  # none, line 1:
            return 1
        end))))), false)))
+
 .. rubric:: Intermediate and compiled representations
 
 Inspecting the lowered form for functions requires selection of the specific method to display,

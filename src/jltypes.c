@@ -312,6 +312,8 @@ typedef struct {
 
 STATIC_INLINE int is_bnd(jl_tvar_t *tv, cenv_t *env)
 {
+    if (env->tvars == jl_emptysvec)
+        return tv->bound;
     if (jl_is_typevar(env->tvars))
         return (jl_tvar_t*)env->tvars == tv;
     for(size_t i=0; i < jl_svec_len(env->tvars); i++) {
@@ -667,7 +669,7 @@ static jl_value_t *intersect_typevar(jl_tvar_t *a, jl_value_t *b,
         b = type_to_static_parameter_value(b);
     }
     if (jl_subtype(b, (jl_value_t*)a, 0)) {
-        if (!a->bound) {
+        if (!is_bnd(a,penv)) {
             JL_GC_POP();
             return b;
         }
@@ -686,13 +688,13 @@ static jl_value_t *intersect_typevar(jl_tvar_t *a, jl_value_t *b,
           should give Type{_<:Vector}
         */
         if (jl_is_typevar(b)) {
-            if (!((jl_tvar_t*)b)->bound){
+            if (!is_bnd((jl_tvar_t*)b,penv)) {
                 JL_GC_POP();
                 return (jl_value_t*)a;
             }
         }
         else {
-            if (!a->bound) {
+            if (!is_bnd(a,penv)) {
                 JL_GC_POP();
                 return (jl_value_t*)a;
             }
@@ -3290,13 +3292,14 @@ void jl_init_types(void)
 
     jl_methtable_type =
         jl_new_datatype(jl_symbol("MethodTable"), jl_any_type, jl_emptysvec,
-                        jl_svec(7, jl_symbol("name"), jl_symbol("defs"),
+                        jl_svec(8, jl_symbol("name"), jl_symbol("defs"),
                                 jl_symbol("cache"), jl_symbol("cache_arg1"),
-                                jl_symbol("cache_targ"),
-                                jl_symbol("max_args"), jl_symbol("kwsorter")),
-                        jl_svec(7, jl_sym_type, jl_any_type, jl_any_type,
-                                jl_any_type, jl_any_type, jl_long_type,
-                                jl_any_type),
+                                jl_symbol("cache_targ"), jl_symbol("max_args"),
+                                jl_symbol("kwsorter"), jl_symbol("module")),
+                        jl_svec(8, jl_sym_type, jl_any_type,
+                                jl_any_type, jl_any_type,
+                                jl_any_type, jl_long_type,
+                                jl_any_type, jl_any_type),
                         0, 1, 6);
 
     tv = jl_svec2(tvar("T"), tvar("N"));
@@ -3381,6 +3384,7 @@ void jl_init_types(void)
                         jl_svec(2, jl_module_type, jl_sym_type), 0, 0, 2);
 
     jl_svecset(jl_typename_type->types, 1, jl_module_type);
+    jl_svecset(jl_methtable_type->types, 7, jl_module_type);
 
     jl_lambda_info_type =
         jl_new_datatype(jl_symbol("LambdaStaticData"),

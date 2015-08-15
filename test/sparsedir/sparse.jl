@@ -271,9 +271,13 @@ end
 rowval = Int32[1,2,2,3,4,5,1,4,6,1,7,2,5,8,6,9,3,4,6,8,10,3,5,7,8,10,11]
 colval = Int32[1,2,3,3,4,5,6,6,6,7,7,8,8,8,9,9,10,10,10,10,10,11,11,11,11,11,11]
 A = sparse(rowval, colval, ones(length(rowval)))
-P,post = Base.LinAlg.etree(A, true)
+p = etree(A)
+P,post = etree(A, true)
+@test P == p
 @test P == Int32[6,3,8,6,8,7,9,10,10,11,0]
 @test post == Int32[2,3,5,8,1,4,6,7,9,10,11]
+@test isperm(post)
+
 
 # issue #4986, reinterpret
 sfe22 = speye(Float64, 2)
@@ -281,7 +285,7 @@ mfe22 = eye(Float64, 2)
 @test reinterpret(Int64, sfe22) == reinterpret(Int64, mfe22)
 
 # issue #5190
-@test_throws DimensionMismatch sparsevec([3,5,7],[0.1,0.0,3.2],4)
+@test_throws ArgumentError sparsevec([3,5,7],[0.1,0.0,3.2],4)
 
 # issue #5169
 @test nnz(sparse([1,1],[1,2],[0.0,-0.0])) == 0
@@ -589,17 +593,17 @@ let A = Array(Int,0,0), S = sparse(A)
 end
 
 # issue #8225
-@test_throws BoundsError sparse([0],[-1],[1.0],2,2)
+@test_throws ArgumentError sparse([0],[-1],[1.0],2,2)
 
 # issue #8363
-@test_throws BoundsError sparsevec(Dict(-1=>1,1=>2))
+@test_throws ArgumentError sparsevec(Dict(-1=>1,1=>2))
 
 # issue #8976
 @test conj(sparse([1im])) == sparse(conj([1im]))
 @test conj!(sparse([1im])) == sparse(conj!([1im]))
 
 # issue #9525
-@test_throws BoundsError sparse([3], [5], 1.0, 3, 3)
+@test_throws ArgumentError sparse([3], [5], 1.0, 3, 3)
 
 #findn
 b = findn( speye(4) )
@@ -913,6 +917,17 @@ A = sparse(tril(rand(5,5)))
 @test istril(A)
 @test !istril(sparse(ones(5,5)))
 
+# symperm
+
+srand(1234321)
+A = triu(sprand(10,10,0.2))       # symperm operates on upper triangle
+perm = randperm(10)
+@test symperm(A,perm).colptr == [1,2,3,3,3,4,5,5,7,9,10]
+
+# droptol
+
+@test Base.droptol!(A,0.01).colptr == [1,1,1,2,2,3,4,6,6,7,9]
+
 #trace
 
 @test_throws DimensionMismatch trace(sparse(ones(5,6)))
@@ -1013,3 +1028,54 @@ A = sprandn(10,10,0.5)
 @test I + A == I + full(A)
 @test A - I == full(A) - I
 @test I - A == I - full(A)
+
+# Test error path if triplet vectors are not all the same length (#12177)
+@test_throws ArgumentError sparse([1,2,3], [1,2], [1,2,3], 3, 3)
+@test_throws ArgumentError sparse([1,2,3], [1,2,3], [1,2], 3, 3)
+
+#Issue 12118: sparse matrices are closed under +, -, min, max
+let
+    A12118 = sparse([1,2,3,4,5], [1,2,3,4,5], [1,2,3,4,5])
+    B12118 = sparse([1,2,4,5],   [1,2,3,5],   [2,1,-1,-2])
+
+    @test A12118 + B12118 == sparse([1,2,3,4,4,5], [1,2,3,3,4,5], [3,3,3,-1,4,3])
+    @test typeof(A12118 + B12118) == SparseMatrixCSC{Int,Int}
+
+    @test A12118 - B12118 == sparse([1,2,3,4,4,5], [1,2,3,3,4,5], [-1,1,3,1,4,7])
+    @test typeof(A12118 - B12118) == SparseMatrixCSC{Int,Int}
+
+    @test max(A12118, B12118) == sparse([1,2,3,4,5], [1,2,3,4,5], [2,2,3,4,5])
+    @test typeof(max(A12118, B12118)) == SparseMatrixCSC{Int,Int}
+
+    @test min(A12118, B12118) == sparse([1,2,4,5], [1,2,3,5], [1,1,-1,-2])
+    @test typeof(min(A12118, B12118)) == SparseMatrixCSC{Int,Int}
+end
+
+# test sparse matrix norms
+Ac = sprandn(10,10,.1) + im* sprandn(10,10,.1)
+Ar = sprandn(10,10,.1)
+Ai = ceil(Int,Ar*100)
+@test_approx_eq norm(Ac,1)     norm(full(Ac),1)
+@test_approx_eq norm(Ac,Inf)   norm(full(Ac),Inf)
+@test_approx_eq vecnorm(Ac)    vecnorm(full(Ac))
+@test_approx_eq norm(Ar,1)     norm(full(Ar),1)
+@test_approx_eq norm(Ar,Inf)   norm(full(Ar),Inf)
+@test_approx_eq vecnorm(Ar)    vecnorm(full(Ar))
+@test_approx_eq norm(Ai,1)     norm(full(Ai),1)
+@test_approx_eq norm(Ai,Inf)   norm(full(Ai),Inf)
+@test_approx_eq vecnorm(Ai)    vecnorm(full(Ai))
+
+# test sparse matrix cond
+A = sparse([1.0])
+Ac = sprandn(20,20,.5) + im* sprandn(20,20,.5)
+Ar = sprandn(20,20,.5)
+@test cond(A,1) == 1.0
+@test_approx_eq_eps cond(Ar,1) cond(full(Ar),1) 1e-4
+@test_approx_eq_eps cond(Ac,1) cond(full(Ac),1) 1e-4
+@test_approx_eq_eps cond(Ar,Inf) cond(full(Ar),Inf) 1e-4
+@test_approx_eq_eps cond(Ac,Inf) cond(full(Ac),Inf) 1e-4
+@test_throws ArgumentError cond(A,2)
+@test_throws ArgumentError cond(A,3)
+
+@test_throws ErrorException transpose(sub(sprandn(10, 10, 0.3), 1:4, 1:4))
+@test_throws ErrorException ctranspose(sub(sprandn(10, 10, 0.3), 1:4, 1:4))

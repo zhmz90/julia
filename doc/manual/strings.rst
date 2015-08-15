@@ -11,13 +11,13 @@ comes when one asks what a character is. The characters that English
 speakers are familiar with are the letters ``A``, ``B``, ``C``, etc.,
 together with numerals and common punctuation symbols. These characters
 are standardized together with a mapping to integer values between 0 and
-127 by the `ASCII <http://en.wikipedia.org/wiki/ASCII>`_ standard. There
+127 by the `ASCII <https://en.wikipedia.org/wiki/ASCII>`_ standard. There
 are, of course, many other characters used in non-English languages,
 including variants of the ASCII characters with accents and other
 modifications, related scripts such as Cyrillic and Greek, and scripts
 completely unrelated to ASCII and English, including Arabic, Chinese,
 Hebrew, Hindi, Japanese, and Korean. The
-`Unicode <http://en.wikipedia.org/wiki/Unicode>`_ standard tackles the
+`Unicode <https://en.wikipedia.org/wiki/Unicode>`_ standard tackles the
 complexities of what exactly a character is, and is generally accepted
 as the definitive standard addressing this problem. Depending on your
 needs, you can either ignore these complexities entirely and just
@@ -53,9 +53,9 @@ There are a few noteworthy high-level features about Julia's strings:
    efficiently and simply for variable-width encodings of Unicode
    strings.
 -  Julia supports the full range of
-   `Unicode <http://en.wikipedia.org/wiki/Unicode>`_ characters: literal
-   strings are always `ASCII <http://en.wikipedia.org/wiki/ASCII>`_ or
-   `UTF-8 <http://en.wikipedia.org/wiki/UTF-8>`_ but other encodings for
+   `Unicode <https://en.wikipedia.org/wiki/Unicode>`_ characters: literal
+   strings are always `ASCII <https://en.wikipedia.org/wiki/ASCII>`_ or
+   `UTF-8 <https://en.wikipedia.org/wiki/UTF-8>`_ but other encodings for
    strings from external sources can be supported.
 
 .. _man-characters:
@@ -66,7 +66,7 @@ Characters
 A :obj:`Char` value represents a single character: it is just a 32-bit
 bitstype with a special literal representation and appropriate arithmetic
 behaviors, whose numeric value is interpreted as a `Unicode code
-point <http://en.wikipedia.org/wiki/Code_point>`_. Here is how :obj:`Char`
+point <https://en.wikipedia.org/wiki/Code_point>`_. Here is how :obj:`Char`
 values are input and shown:
 
 .. doctest::
@@ -137,7 +137,7 @@ Julia uses your system's locale and language settings to determine which
 characters can be printed as-is and which must be output using the
 generic, escaped ``\u`` or ``\U`` input forms. In addition to these
 Unicode escape forms, all of `C's traditional escaped input
-forms <http://en.wikipedia.org/wiki/C_syntax#Backslash_escapes>`_ can
+forms <https://en.wikipedia.org/wiki/C_syntax#Backslash_escapes>`_ can
 also be used:
 
 .. doctest::
@@ -277,9 +277,9 @@ special characters depends on your terminal's locale settings and its
 support for Unicode. Non-ASCII string literals are encoded using the
 UTF-8 encoding. UTF-8 is a variable-width encoding, meaning that not all
 characters are encoded in the same number of bytes. In UTF-8, ASCII
-characters — i.e. those with code points less than 0x80 (128) — are
+characters — i.e. those with code points less than 0x80 (128) — are
 encoded as they are in ASCII, using a single byte, while code points
-0x80 and above are encoded using multiple bytes — up to four per
+0x80 and above are encoded using multiple bytes — up to four per
 character. This means that not every byte index into a UTF-8 string is
 necessarily a valid index for a character. If you index into a string at
 such an invalid byte index, an error is thrown:
@@ -290,14 +290,14 @@ such an invalid byte index, an error is thrown:
     '∀'
 
     julia> s[2]
-    ERROR: ArgumentError: invalid UTF-8 character index
-     in next at ./utf8.jl:80
-     in getindex at string.jl:62
+    ERROR: UnicodeError: invalid character index
+     in next at ./unicode/utf8.jl:69
+     in getindex at strings/basic.jl:37
 
     julia> s[3]
-    ERROR: ArgumentError: invalid UTF-8 character index
-     in next at ./utf8.jl:80
-     in getindex at string.jl:62
+    ERROR: UnicodeError: invalid character index
+     in next at ./unicode/utf8.jl:69
+     in getindex at strings/basic.jl:37
 
     julia> s[4]
     ' '
@@ -706,6 +706,20 @@ with the number or name of the capture group::
     "45"
     julia> m[2]
     "45"
+
+Captures can be referenced in a substitution string when using :func:`replace`
+by using ``\n`` to refer to the `n`th capture group and prefixing the
+subsitution string with ``s``. Capture group 0 refers to the entire match object.
+Named capture groups can be referenced in the substitution with ``g<groupname>``.
+For example::
+
+    julia> replace("first second", r"(\w+) (?P<agroup>\w+)", s"\g<agroup> \1")
+    julia> "second first"
+
+Numbered capture groups can also be referenced as ``\g<n>`` for disambiguation,
+as in::
+    julia> replace("a", r".", "\g<0>1")
+    julia> a1
 
 You can modify the behavior of regular expressions by some combination
 of the flags ``i``, ``m``, ``s``, and ``x`` after the closing double

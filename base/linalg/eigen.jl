@@ -23,7 +23,7 @@ function getindex(A::Union{Eigen,GeneralizedEigen}, d::Symbol)
     throw(KeyError(d))
 end
 
-isposdef(A::Union{Eigen,GeneralizedEigen}) = all(A.values .> 0)
+isposdef(A::Union{Eigen,GeneralizedEigen}) = isreal(A.values) && all(A.values .> 0)
 
 function eigfact!{T<:BlasReal}(A::StridedMatrix{T}; permute::Bool=true, scale::Bool=true)
     n = size(A, 2)
@@ -62,9 +62,9 @@ eigfact(x::Number) = Eigen([x], fill(one(x), 1, 1))
 #     F = eigfact(A, permute=permute, scale=scale)
 #     F[:values], F[:vectors]
 # end
-function eig(A::Union{Number, AbstractMatrix}, args...; kwargs...)
-    F = eigfact(A, args...; kwargs...)
-    F[:values], F[:vectors]
+function eig(A::Union{Number, AbstractMatrix}; kwargs...)
+    F = eigfact(A; kwargs...)
+    F.values, F.vectors
 end
 #Calculates eigenvectors
 eigvecs(A::Union{Number, AbstractMatrix}, args...; kwargs...) = eigfact(A, args...; kwargs...)[:vectors]
@@ -91,14 +91,14 @@ end
 #Computes maximum and minimum eigenvalue
 function eigmax(A::Union{Number, StridedMatrix}; permute::Bool=true, scale::Bool=true)
     v = eigvals(A, permute = permute, scale = scale)
-    if iseltype(v,Complex)
+    if eltype(v)<:Complex
         throw(DomainError())
     end
     maximum(v)
 end
 function eigmin(A::Union{Number, StridedMatrix}; permute::Bool=true, scale::Bool=true)
     v = eigvals(A, permute = permute, scale = scale)
-    if iseltype(v,Complex)
+    if eltype(v)<:Complex
         throw(DomainError())
     end
     minimum(v)
@@ -137,6 +137,11 @@ end
 function eigfact{TA,TB}(A::AbstractMatrix{TA}, B::AbstractMatrix{TB})
     S = promote_type(Float32, typeof(one(TA)/norm(one(TA))),TB)
     return eigfact!(copy_oftype(A, S), copy_oftype(B, S))
+end
+
+function eig(A::Union{Number, AbstractMatrix}, B::Union{Number, AbstractMatrix})
+    F = eigfact(B)
+    F.values, F.vectors
 end
 
 function eigvals!{T<:BlasReal}(A::StridedMatrix{T}, B::StridedMatrix{T})

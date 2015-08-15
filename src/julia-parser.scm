@@ -4,16 +4,17 @@
 ;; the way the lexer works, every prefix of an operator must also
 ;; be an operator.
 (define prec-assignment
-  '(= := += -= *= /= //= .//= .*= ./= |\\=| |.\\=| ^= .^= ÷= .÷= %= .%= |\|=| &= $= => <<= >>= >>>= ~ |.+=| |.-=|))
+  '(= := += -= *= /= //= .//= .*= ./= |\\=| |.\\=| ^= .^= ÷= .÷= %= .%= |\|=| &= $= <<= >>= >>>= ~ |.+=| |.-=|))
 (define prec-conditional '(?))
 (define prec-lazy-or     '(|\|\||))
 (define prec-lazy-and    '(&&))
 (define prec-arrow       '(-- --> ← → ↔ ↚ ↛ ↠ ↣ ↦ ↮ ⇎ ⇏ ⇒ ⇔ ⇴ ⇶ ⇷ ⇸ ⇹ ⇺ ⇻ ⇼ ⇽ ⇾ ⇿ ⟵ ⟶ ⟷ ⟷ ⟹ ⟺ ⟻ ⟼ ⟽ ⟾ ⟿ ⤀ ⤁ ⤂ ⤃ ⤄ ⤅ ⤆ ⤇ ⤌ ⤍ ⤎ ⤏ ⤐ ⤑ ⤔ ⤕ ⤖ ⤗ ⤘ ⤝ ⤞ ⤟ ⤠ ⥄ ⥅ ⥆ ⥇ ⥈ ⥊ ⥋ ⥎ ⥐ ⥒ ⥓ ⥖ ⥗ ⥚ ⥛ ⥞ ⥟ ⥢ ⥤ ⥦ ⥧ ⥨ ⥩ ⥪ ⥫ ⥬ ⥭ ⥰ ⧴ ⬱ ⬰ ⬲ ⬳ ⬴ ⬵ ⬶ ⬷ ⬸ ⬹ ⬺ ⬻ ⬼ ⬽ ⬾ ⬿ ⭀ ⭁ ⭂ ⭃ ⭄ ⭇ ⭈ ⭉ ⭊ ⭋ ⭌ ￩ ￫))
 (define prec-comparison
   '(> < >= ≥ <= ≤ == === ≡ != ≠ !== ≢ |.>| |.<| |.>=| |.≥| |.<=| |.≤| |.==| |.!=| |.≠| |.=| |.!| |<:| |>:| ∈ ∉ ∋ ∌ ⊆ ⊈ ⊂ ⊄ ⊊ ∝ ∊ ∍ ∥ ∦ ∷ ∺ ∻ ∽ ∾ ≁ ≃ ≄ ≅ ≆ ≇ ≈ ≉ ≊ ≋ ≌ ≍ ≎ ≐ ≑ ≒ ≓ ≔ ≕ ≖ ≗ ≘ ≙ ≚ ≛ ≜ ≝ ≞ ≟ ≣ ≦ ≧ ≨ ≩ ≪ ≫ ≬ ≭ ≮ ≯ ≰ ≱ ≲ ≳ ≴ ≵ ≶ ≷ ≸ ≹ ≺ ≻ ≼ ≽ ≾ ≿ ⊀ ⊁ ⊃ ⊅ ⊇ ⊉ ⊋ ⊏ ⊐ ⊑ ⊒ ⊜ ⊩ ⊬ ⊮ ⊰ ⊱ ⊲ ⊳ ⊴ ⊵ ⊶ ⊷ ⋍ ⋐ ⋑ ⋕ ⋖ ⋗ ⋘ ⋙ ⋚ ⋛ ⋜ ⋝ ⋞ ⋟ ⋠ ⋡ ⋢ ⋣ ⋤ ⋥ ⋦ ⋧ ⋨ ⋩ ⋪ ⋫ ⋬ ⋭ ⋲ ⋳ ⋴ ⋵ ⋶ ⋷ ⋸ ⋹ ⋺ ⋻ ⋼ ⋽ ⋾ ⋿ ⟈ ⟉ ⟒ ⦷ ⧀ ⧁ ⧡ ⧣ ⧤ ⧥ ⩦ ⩧ ⩪ ⩫ ⩬ ⩭ ⩮ ⩯ ⩰ ⩱ ⩲ ⩳ ⩴ ⩵ ⩶ ⩷ ⩸ ⩹ ⩺ ⩻ ⩼ ⩽ ⩾ ⩿ ⪀ ⪁ ⪂ ⪃ ⪄ ⪅ ⪆ ⪇ ⪈ ⪉ ⪊ ⪋ ⪌ ⪍ ⪎ ⪏ ⪐ ⪑ ⪒ ⪓ ⪔ ⪕ ⪖ ⪗ ⪘ ⪙ ⪚ ⪛ ⪜ ⪝ ⪞ ⪟ ⪠ ⪡ ⪢ ⪣ ⪤ ⪥ ⪦ ⪧ ⪨ ⪩ ⪪ ⪫ ⪬ ⪭ ⪮ ⪯ ⪰ ⪱ ⪲ ⪳ ⪴ ⪵ ⪶ ⪷ ⪸ ⪹ ⪺ ⪻ ⪼ ⪽ ⪾ ⪿ ⫀ ⫁ ⫂ ⫃ ⫄ ⫅ ⫆ ⫇ ⫈ ⫉ ⫊ ⫋ ⫌ ⫍ ⫎ ⫏ ⫐ ⫑ ⫒ ⫓ ⫔ ⫕ ⫖ ⫗ ⫘ ⫙ ⫷ ⫸ ⫹ ⫺ ⊢ ⊣))
-(define prec-pipe        '(|\|>| |<\||))
+;; infix "in" goes here
+(define prec-pipe        '(|\|>| |<\|| =>))
 (define prec-colon       '(: |..|))
-(define prec-plus        '(+ - ⊕ ⊖ ⊞ ⊟ |.+| |.-| |\|| ∪ ∨ $ ⊔ ± ∓ ∔ ∸ ≂ ≏ ⊎ ⊻ ⊽ ⋎ ⋓ ⧺ ⧻ ⨈ ⨢ ⨣ ⨤ ⨥ ⨦ ⨧ ⨨ ⨩ ⨪ ⨫ ⨬ ⨭ ⨮ ⨹ ⨺ ⩁ ⩂ ⩅ ⩊ ⩌ ⩏ ⩐ ⩒ ⩔ ⩖ ⩗ ⩛ ⩝ ⩡ ⩢ ⩣))
+(define prec-plus        '(+ - ⊕ ⊖ ⊞ ⊟ |.+| |.-| |++| |\|| ∪ ∨ $ ⊔ ± ∓ ∔ ∸ ≂ ≏ ⊎ ⊻ ⊽ ⋎ ⋓ ⧺ ⧻ ⨈ ⨢ ⨣ ⨤ ⨥ ⨦ ⨧ ⨨ ⨩ ⨪ ⨫ ⨬ ⨭ ⨮ ⨹ ⨺ ⩁ ⩂ ⩅ ⩊ ⩌ ⩏ ⩐ ⩒ ⩔ ⩖ ⩗ ⩛ ⩝ ⩡ ⩢ ⩣))
 (define prec-bitshift    '(<< >> >>> |.<<| |.>>| |.>>>|))
 (define prec-times       '(* / |./| ÷ % ⋅ ∘ × |.%| |.*| |\\| |.\\| & ∩ ∧ ⊗ ⊘ ⊙ ⊚ ⊛ ⊠ ⊡ ⊓ ∗ ∙ ∤ ⅋ ≀ ⊼ ⋄ ⋆ ⋇ ⋉ ⋊ ⋋ ⋌ ⋏ ⋒ ⟑ ⦸ ⦼ ⦾ ⦿ ⧶ ⧷ ⨇ ⨰ ⨱ ⨲ ⨳ ⨴ ⨵ ⨶ ⨷ ⨸ ⨻ ⨼ ⨽ ⩀ ⩃ ⩄ ⩋ ⩍ ⩎ ⩑ ⩓ ⩕ ⩘ ⩚ ⩜ ⩞ ⩟ ⩠ ⫛ ⊍))
 (define prec-rational    '(// .//))
@@ -704,12 +705,12 @@
 
 (define (parse-block s (down parse-eq))
   (parse-Nary s down '(#\newline #\;) 'block
-	      '(end else elseif catch finally) #t))
+              '(end else elseif catch finally) #t))
 
 ;; ";" at the top level produces a sequence of top level expressions
 (define (parse-stmts s)
   (let ((ex (parse-Nary s (lambda (s) (parse-docstring s parse-eq))
-			'(#\;) 'toplevel '(#\newline) #t)))
+                        '(#\;) 'toplevel '(#\newline) #t)))
     ;; check for unparsed junk after an expression
     (let ((t (peek-token s)))
       (if (not (or (eof-object? t) (eqv? t #\newline) (eq? t #f)))
@@ -753,7 +754,7 @@
 
 ;; parse left to right, combining chains of a certain operator into 1 call
 ;; e.g. a+b+c => (call + a b c)
-(define (parse-with-chains s down ops chain-op)
+(define (parse-with-chains s down ops chain-ops)
   (let loop ((ex (down s)))
     (let* ((t   (peek-token s))
            (spc (ts:space? s)))
@@ -766,17 +767,17 @@
                    ;; here we have "x -y"
                    (ts:put-back! s t)
                    ex)
-                  ((eq? t chain-op)
+                  ((memq t chain-ops)
                    (loop (list* 'call t ex
                                 (parse-chain s down t))))
                   (else
                    (loop (list 'call t ex (down s))))))))))
 
-(define (parse-expr s) (parse-with-chains s parse-shift is-prec-plus? '+))
+(define (parse-expr s) (parse-with-chains s parse-shift is-prec-plus? '(+ ++)))
 
 (define (parse-shift s) (parse-LtoR s parse-term is-prec-bitshift?))
 
-(define (parse-term s) (parse-with-chains s parse-rational is-prec-times? '*))
+(define (parse-term s) (parse-with-chains s parse-rational is-prec-times? '(*)))
 
 (define (parse-rational s) (parse-LtoR s parse-unary is-prec-rational?))
 
@@ -793,8 +794,8 @@
           ex
           (begin (take-token s)
                  (if first
-                     (loop (list 'comparison ex t (parse-range s)) #f)
-                     (loop (append ex (list t (parse-range s))) #f)))))))
+                     (loop (list 'comparison ex t (parse-in s)) #f)
+                     (loop (append ex (list t (parse-in s))) #f)))))))
 
 ; flag an error for tokens that cannot begin an expression
 (define (closing-token? tok)
@@ -2070,17 +2071,21 @@
 
 (define (doc-string-literal? e)
   (or (simple-string-literal? e)
+      (and (pair? e) (eq? 'string (car e))) ; string interpolation
       (and (length= e 3) (eq? (car e) 'macrocall)
-	   (simple-string-literal? (caddr e))
-	   (eq? (cadr e) '@doc_str))))
+           (simple-string-literal? (caddr e))
+           (eq? (cadr e) '@doc_str))))
 
 (define (parse-docstring s production)
-  (let* ((isstr (eqv? (peek-token s) #\"))
-	 (ex    (production s)))
-    (if (and (or isstr (doc-string-literal? ex))
-	     (not (closing-token? (peek-token s))))
-	`(macrocall (|.| Base (quote @doc)) ,ex ,(production s))
-	ex)))
+  (let* ((ex (production s)))
+    (if (and (doc-string-literal? ex)
+             (let loop ((t (peek-token s)))
+               (cond
+                ((closing-token? t) #f)
+                ((newline? t) (take-token s) (loop (peek-token s)))
+                (else #t))))
+        `(macrocall @doc ,ex ,(production s))
+        ex)))
 
 ; --- main entry point ---
 

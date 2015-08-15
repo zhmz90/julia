@@ -10,7 +10,7 @@ promote_rule{s}(::Type{Irrational{s}}, ::Type{Float32}) = Float32
 promote_rule{s,t}(::Type{Irrational{s}}, ::Type{Irrational{t}}) = Float64
 promote_rule{s,T<:Number}(::Type{Irrational{s}}, ::Type{T}) = promote_type(Float64,T)
 
-convert(::Type{FloatingPoint}, x::Irrational) = Float64(x)
+convert(::Type{AbstractFloat}, x::Irrational) = Float64(x)
 convert(::Type{Float16}, x::Irrational) = Float16(Float32(x))
 convert{T<:Real}(::Type{Complex{T}}, x::Irrational) = convert(Complex{T}, convert(T,x))
 convert{T<:Integer}(::Type{Rational{T}}, x::Irrational) = convert(Rational{T}, Float64(x))
@@ -27,7 +27,7 @@ end
 ==(x::Irrational, y::Real) = false
 ==(x::Real, y::Irrational) = false
 
-# Irrational vs FloatingPoint
+# Irrational vs AbstractFloat
 <(x::Irrational, y::Float64) = Float64(x,RoundUp) <= y
 <(x::Float64, y::Irrational) = x <= Float64(y,RoundDown)
 <(x::Irrational, y::Float32) = Float32(x,RoundUp) <= y
@@ -41,8 +41,8 @@ end
     x < big(y)
 end
 
-<=(x::Irrational,y::FloatingPoint) = x < y
-<=(x::FloatingPoint,y::Irrational) = x < y
+<=(x::Irrational,y::AbstractFloat) = x < y
+<=(x::AbstractFloat,y::Irrational) = x < y
 
 # Irrational vs Rational
 @generated function <{T}(x::Irrational, y::Rational{T})
@@ -63,6 +63,7 @@ end
 <=(x::Irrational,y::Rational) = x < y
 <=(x::Rational,y::Irrational) = x < y
 
+isfinite(::Irrational) = true
 
 hash(x::Irrational, h::UInt) = 3*object_id(x) - h
 
@@ -132,6 +133,6 @@ log(::Irrational{:e}, x) = log(x)
 # align along = for nice Array printing
 function alignment(x::Irrational)
     m = match(r"^(.*?)(=.*)$", sprint(showcompact_lim, x))
-    m == nothing ? (length(sprint(showcompact_lim, x)), 0) :
+    m === nothing ? (length(sprint(showcompact_lim, x)), 0) :
     (length(m.captures[1]), length(m.captures[2]))
 end

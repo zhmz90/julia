@@ -600,47 +600,55 @@ Built-in :exc:`Exception`\ s
 :exc:`Exception`\ s are thrown when an unexpected condition has occurred. The
 built-in :exc:`Exception`\ s listed below all interrupt the normal flow of control.
 
-+---------------------------+
-| :exc:`Exception`          |
-+===========================+
-| :exc:`ArgumentError`      |
-+---------------------------+
-| :exc:`BoundsError`        |
-+---------------------------+
-| :exc:`DivideError`        |
-+---------------------------+
-| :exc:`DomainError`        |
-+---------------------------+
-| :exc:`EOFError`           |
-+---------------------------+
-| :exc:`ErrorException`     |
-+---------------------------+
-| :exc:`InexactError`       |
-+---------------------------+
-| :exc:`InterruptException` |
-+---------------------------+
-| :exc:`KeyError`           |
-+---------------------------+
-| :exc:`LoadError`          |
-+---------------------------+
-| :exc:`OutOfMemoryError`   |
-+---------------------------+
-| :exc:`ReadOnlyMemoryError`|
-+---------------------------+
-| :exc:`MethodError`        |
-+---------------------------+
-| :exc:`OverflowError`      |
-+---------------------------+
-| :exc:`ParseError`         |
-+---------------------------+
-| :exc:`SystemError`        |
-+---------------------------+
-| :exc:`TypeError`          |
-+---------------------------+
-| :exc:`UndefRefError`      |
-+---------------------------+
-| :exc:`UndefVarError`      |
-+---------------------------+
++------------------------------+
+| :exc:`Exception`             |
++==============================+
+| :exc:`ArgumentError`         |
++------------------------------+
+| :exc:`BoundsError`           |
++------------------------------+
+| :exc:`CompositeException`    |
++------------------------------+
+| :exc:`DivideError`           |
++------------------------------+
+| :exc:`DomainError`           |
++------------------------------+
+| :exc:`EOFError`              |
++------------------------------+
+| :exc:`ErrorException`        |
++------------------------------+
+| :exc:`InexactError`          |
++------------------------------+
+| :exc:`InterruptException`    |
++------------------------------+
+| :exc:`InvalidStateException` |
++------------------------------+
+| :exc:`KeyError`              |
++------------------------------+
+| :exc:`LoadError`             |
++------------------------------+
+| :exc:`OutOfMemoryError`      |
++------------------------------+
+| :exc:`ReadOnlyMemoryError`   |
++------------------------------+
+| :exc:`RemoteException`       |
++------------------------------+
+| :exc:`MethodError`           |
++------------------------------+
+| :exc:`OverflowError`         |
++------------------------------+
+| :exc:`ParseError`            |
++------------------------------+
+| :exc:`SystemError`           |
++------------------------------+
+| :exc:`TypeError`             |
++------------------------------+
+| :exc:`UndefRefError`         |
++------------------------------+
+| :exc:`UndefVarError`         |
++------------------------------+
+| :exc:`UnicodeError`          |
++------------------------------+
 
 
 For example, the :func:`sqrt` function throws a :exc:`DomainError` if applied to a
@@ -652,7 +660,7 @@ negative real value:
     ERROR: DomainError:
     sqrt will only return a complex result if called with a complex argument.
     try sqrt (complex(x))
-     in sqrt at math.jl:137
+     in sqrt at math.jl:139
 
 You may define your own exceptions in the following way:
 
@@ -677,7 +685,6 @@ if the argument is negative:
 
     julia> f(-1)
     ERROR: DomainError:
-    <BLANKLINE>
      in f at none:1
 
 Note that :exc:`DomainError` without parentheses is not an exception, but a type of
@@ -775,7 +782,7 @@ execution.:
 
     julia> error("Hi"); 1+1
     ERROR: Hi
-     in error at error.jl:21
+     in error at ./error.jl:21
 
 
 The ``try/catch`` statement
@@ -834,7 +841,6 @@ assumes ``x`` is a real number and returns its square root:
 
     julia> sqrt_second(-9)
     ERROR: DomainError:
-    <BLANKLINE>
      in sqrt_second at none:7
 
 Note that the symbol following ``catch`` will always be interpreted as a

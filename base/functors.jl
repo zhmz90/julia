@@ -34,11 +34,50 @@ call(::AndFun, x, y) = x & y
 immutable OrFun <: Func{2} end
 call(::OrFun, x, y) = x | y
 
+immutable XorFun <: Func{2} end
+call(::XorFun, x, y) = x $ y
+
 immutable AddFun <: Func{2} end
 call(::AddFun, x, y) = x + y
 
+immutable DotAddFun <: Func{2} end
+call(::DotAddFun, x, y) = x .+ y
+
+immutable SubFun <: Func{2} end
+call(::SubFun, x, y) = x - y
+
+immutable DotSubFun <: Func{2} end
+call(::DotSubFun, x, y) = x .- y
+
 immutable MulFun <: Func{2} end
 call(::MulFun, x, y) = x * y
+
+immutable DotMulFun <: Func{2} end
+call(::DotMulFun, x, y) = x .* y
+
+immutable RDivFun <: Func{2} end
+call(::RDivFun, x, y) = x / y
+
+immutable DotRDivFun <: Func{2} end
+call(::DotRDivFun, x, y) = x ./ y
+
+immutable LDivFun <: Func{2} end
+call(::LDivFun, x, y) = x \ y
+
+immutable IDivFun <: Func{2} end
+call(::IDivFun, x, y) = div(x, y)
+
+immutable ModFun <: Func{2} end
+call(::ModFun, x, y) = mod(x, y)
+
+immutable RemFun <: Func{2} end
+call(::RemFun, x, y) = rem(x, y)
+
+immutable DotRemFun <: Func{2} end
+call(::RemFun, x, y) = x .% y
+
+immutable PowFun <: Func{2} end
+call(::PowFun, x, y) = x ^ y
 
 immutable MaxFun <: Func{2} end
 call(::MaxFun, x, y) = scalarmax(x,y)
@@ -52,6 +91,12 @@ call(::LessFun, x, y) = x < y
 immutable MoreFun <: Func{2} end
 call(::MoreFun, x, y) = x > y
 
+immutable DotLSFun <: Func{2} end
+call(::DotLSFun, x, y) = x .<< y
+
+immutable DotRSFun <: Func{2} end
+call(::DotRSFun, x, y) = x .>> y
+
 # a fallback unspecialized function object that allows code using
 # function objects to not care whether they were able to specialize on
 # the function value or not
@@ -61,6 +106,19 @@ end
 call(f::UnspecializedFun{1}, x) = f.f(x)
 call(f::UnspecializedFun{2}, x, y) = f.f(x,y)
 
+# Special purpose functors
+
+immutable Predicate{F} <: Func{1}
+    f::F
+end
+call(pred::Predicate, x) = pred.f(x)::Bool
+
+immutable EqX{T} <: Func{1}
+    x::T
+end
+EqX{T}(x::T) = EqX{T}(x)
+
+call(f::EqX, y) = f.x == y
 
 #### Bitwise operators ####
 
@@ -121,9 +179,14 @@ function specialized_unary(f::Function)
 end
 function specialized_binary(f::Function)
     is(f, +) ? AddFun() :
+    is(f, -) ? SubFun() :
     is(f, *) ? MulFun() :
+    is(f, /) ? RDivFun() :
+    is(f, \) ? LDivFun() :
+    is(f, ^) ? PowFun() :
     is(f, &) ? AndFun() :
     is(f, |) ? OrFun()  :
+    is(f, div) ? IDivFun() :
     UnspecializedFun{2}(f)
 end
 

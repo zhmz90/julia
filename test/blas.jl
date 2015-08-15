@@ -1,6 +1,39 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
 import Base.LinAlg
+
+srand(100)
+# syr2k! and her2k!
+for elty in (Float32, Float64, Complex64, Complex128)
+    U = randn(5,2)
+    V = randn(5,2)
+    if elty == Complex64 || elty == Complex128
+        U = complex(U, U)
+        V = complex(V, V)
+    end
+    U = convert(Array{elty, 2}, U)
+    V = convert(Array{elty, 2}, V)
+    @test_approx_eq tril(LinAlg.BLAS.syr2k('L','N',U,V)) tril(U*V.' + V*U.')
+    @test_approx_eq triu(LinAlg.BLAS.syr2k('U','N',U,V)) triu(U*V.' + V*U.')
+    @test_approx_eq tril(LinAlg.BLAS.syr2k('L','T',U,V)) tril(U.'*V + V.'*U)
+    @test_approx_eq triu(LinAlg.BLAS.syr2k('U','T',U,V)) triu(U.'*V + V.'*U)
+end
+
+for elty in (Complex64, Complex128)
+    U = randn(5,2)
+    V = randn(5,2)
+    if elty == Complex64 || elty == Complex128
+        U = complex(U, U)
+        V = complex(V, V)
+    end
+    U = convert(Array{elty, 2}, U)
+    V = convert(Array{elty, 2}, V)
+    @test_approx_eq tril(LinAlg.BLAS.her2k('L','N',U,V)) tril(U*V' + V*U')
+    @test_approx_eq triu(LinAlg.BLAS.her2k('U','N',U,V)) triu(U*V' + V*U')
+    @test_approx_eq tril(LinAlg.BLAS.her2k('L','C',U,V)) tril(U'*V + V'*U)
+    @test_approx_eq triu(LinAlg.BLAS.her2k('U','C',U,V)) triu(U'*V + V'*U)
+end
+
 ## BLAS tests - testing the interface code to BLAS routines
 for elty in [Float32, Float64, Complex64, Complex128]
 
@@ -146,7 +179,7 @@ for elty in [Float32, Float64, Complex64, Complex128]
     @test_throws DimensionMismatch BLAS.gemm!('N','N', one(elty), I4, I4, elm1, eye(elty,5))
 
     # gemm compared to (sy)(he)rk
-    if iseltype(elm1,Complex)
+    if eltype(elm1)<:Complex
         @test all(triu(BLAS.herk('U', 'N', U4)) .== triu(BLAS.gemm('N', 'T', U4, U4)))
         @test all(tril(BLAS.herk('L', 'N', U4)) .== tril(BLAS.gemm('N', 'T', U4, U4)))
         @test all(triu(BLAS.herk('U', 'N', L4)) .== triu(BLAS.gemm('N', 'T', L4, L4)))

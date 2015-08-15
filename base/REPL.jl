@@ -17,7 +17,8 @@ import Base:
     Display,
     display,
     writemime,
-    AnyDict
+    AnyDict,
+    ==
 
 import ..LineEdit:
     CompletionProvider,
@@ -36,8 +37,8 @@ abstract AbstractREPL
 answer_color(::AbstractREPL) = ""
 
 type REPLBackend
-    repl_channel::RemoteRef
-    response_channel::RemoteRef
+    repl_channel::Channel
+    response_channel::Channel
     in_eval::Bool
     ans
     backend_task::Task
@@ -75,7 +76,7 @@ function eval_user_input(ast::ANY, backend::REPLBackend)
     end
 end
 
-function start_repl_backend(repl_channel::RemoteRef, response_channel::RemoteRef)
+function start_repl_backend(repl_channel::Channel, response_channel::Channel)
     backend = REPLBackend(repl_channel, response_channel, false, nothing)
     backend.backend_task = @schedule begin
         # include looks at this to determine the relative include path
@@ -154,13 +155,13 @@ end
 
 # A reference to a backend
 immutable REPLBackendRef
-    repl_channel::RemoteRef
-    response_channel::RemoteRef
+    repl_channel::Channel
+    response_channel::Channel
 end
 
 function run_repl(repl::AbstractREPL)
-    repl_channel = RemoteRef()
-    response_channel = RemoteRef()
+    repl_channel = Channel(1)
+    response_channel = Channel(1)
     backend = start_repl_backend(repl_channel, response_channel)
     run_frontend(repl, REPLBackendRef(repl_channel,response_channel))
     backend
@@ -340,7 +341,7 @@ function hist_from_file(hp, file)
             error(invalid_history_message, repr(line[1]), " at line ", countlines)
         while !isempty(line)
             m = match(r"^#\s*(\w+)\s*:\s*(.*?)\s*$", line)
-            m == nothing && break
+            m === nothing && break
             if m.captures[1] == "mode"
                 mode = symbol(m.captures[2])
             end
@@ -386,7 +387,7 @@ function add_history(hist::REPLHistoryProvider, s)
         mode == hist.modes[end] && str == hist.history[end] && return
     push!(hist.modes, mode)
     push!(hist.history, str)
-    hist.history_file == nothing && return
+    hist.history_file === nothing && return
     entry = """
     # time: $(Libc.strftime("%Y-%m-%d %H:%M:%S %Z", time()))
     # mode: $mode
@@ -665,7 +666,7 @@ function setup_interface(repl::LineEditREPL; hascolor = repl.hascolor, extra_rep
     #
     # Usage:
     #
-    # repl_channel,response_channel = RemoteRef(),RemoteRef()
+    # repl_channel,response_channel = Channel(),Channel()
     # start_repl_backend(repl_channel, response_channel)
     # setup_interface(REPLDisplay(t),repl_channel,response_channel)
     #
@@ -783,15 +784,9 @@ function setup_interface(repl::LineEditREPL; hascolor = repl.hascolor, extra_rep
 
         # Bracketed Paste Mode
         "\e[200~" => (s,o...)->begin
-            ps = LineEdit.state(s, LineEdit.mode(s))
-            input = readuntil(ps.terminal, "\e[201~")[1:(end-6)]
-            input = replace(input, '\r', '\n')
-            if position(LineEdit.buffer(s)) == 0
-                indent = Base.indentation(input)[1]
-                input = Base.unindent(lstrip(input), indent)
-            end
+            input = LineEdit.bracketed_paste(s)
             buf = copy(LineEdit.buffer(s))
-            edit_insert(buf,input)
+            edit_insert(buf, input)
             string = takebuf_string(buf)
             curspos = position(LineEdit.buffer(s))
             pos = 0
@@ -894,8 +889,8 @@ input_color(r::StreamREPL) = r.input_color
 function run_repl(stream::AsyncStream)
     repl =
     @async begin
-        repl_channel = RemoteRef()
-        response_channel = RemoteRef()
+        repl_channel = Channel(1)
+        response_channel = Channel(1)
         start_repl_backend(repl_channel, response_channel)
         StreamREPL_frontend(repl, repl_channel, response_channel)
     end

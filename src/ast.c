@@ -124,7 +124,7 @@ void jl_init_frontend(void)
 
     if (fl_load_system_image_str((char*)flisp_system_image,
                                  sizeof(flisp_system_image))) {
-        jl_error("fatal error loading system image\n");
+        jl_error("fatal error loading system image");
     }
 
     fl_applyn(0, symbol_value(symbol("__init_globals")));
@@ -319,7 +319,7 @@ static jl_value_t *scm_to_julia_(value_t e, int eo)
                     jl_cellset(ex->args, i, scm_to_julia_(car_(e), eo));
                     e = cdr_(e);
                 }
-                jl_lambda_info_t *nli = jl_new_lambda_info((jl_value_t*)ex, jl_emptysvec);
+                jl_lambda_info_t *nli = jl_new_lambda_info((jl_value_t*)ex, jl_emptysvec, jl_current_module);
                 resolve_globals(nli->ast, nli);
                 return (jl_value_t*)nli;
             }
@@ -639,7 +639,7 @@ jl_lambda_info_t *jl_wrap_expr(jl_value_t *expr)
         expr = (jl_value_t*)bo;
     }
     jl_cellset(le->args, 2, expr);
-    jl_lambda_info_t *li = jl_new_lambda_info((jl_value_t*)le, jl_emptysvec);
+    jl_lambda_info_t *li = jl_new_lambda_info((jl_value_t*)le, jl_emptysvec, jl_current_module);
     JL_GC_POP();
     return li;
 }
@@ -985,25 +985,31 @@ int jl_in_vinfo_array(jl_array_t *a, jl_sym_t *v)
     return 0;
 }
 
-static int in_sym_array(jl_array_t *a, jl_value_t *v)
+int jl_in_sym_array(jl_array_t *a, jl_sym_t *v)
 {
     size_t i, l=jl_array_len(a);
     for(i=0; i<l; i++) {
-        if (jl_cellref(a,i) == v)
+        if (jl_cellref(a,i) == (jl_value_t*)v)
             return 1;
     }
     return 0;
 }
+
+int jl_local_in_ast(jl_expr_t *ast, jl_sym_t *sym)
+{
+    return jl_in_vinfo_array(jl_lam_vinfo(ast), sym) ||
+        jl_in_vinfo_array(jl_lam_capt(ast), sym) ||
+        jl_in_sym_array(jl_lam_staticparams(ast), sym);
+}
+
+JL_CALLABLE(jl_f_get_field);
 
 static jl_value_t *resolve_globals(jl_value_t *expr, jl_lambda_info_t *lam)
 {
     if (jl_is_symbol(expr)) {
         if (lam->module == NULL)
             return expr;
-        int is_local = jl_in_vinfo_array(jl_lam_vinfo((jl_expr_t*)lam->ast), (jl_sym_t*)expr) ||
-            jl_in_vinfo_array(jl_lam_capt((jl_expr_t*)lam->ast), (jl_sym_t*)expr) ||
-            in_sym_array(jl_lam_staticparams((jl_expr_t*)lam->ast), expr);
-        if (!is_local)
+        if (!jl_local_in_ast((jl_expr_t*)lam->ast, (jl_sym_t*)expr))
             return jl_module_globalref(lam->module, (jl_sym_t*)expr);
     }
     else if (jl_is_lambda_info(expr)) {
@@ -1020,6 +1026,26 @@ static jl_value_t *resolve_globals(jl_value_t *expr, jl_lambda_info_t *lam)
                  e->head == line_sym || e->head == meta_sym) {
         }
         else {
+            if (e->head == call_sym && jl_expr_nargs(e) == 3 && jl_is_quotenode(jl_exprarg(e,2)) &&
+                lam->module != NULL) {
+                // replace getfield(module_expr, :sym) with GlobalRef
+                jl_value_t *s = jl_fieldref(jl_exprarg(e,2),0);
+                jl_value_t *fe = jl_exprarg(e,0);
+                if (jl_is_symbol(s) && jl_is_topnode(fe)) {
+                    jl_value_t *f = jl_static_eval(fe, NULL, lam->module,
+                                                   NULL, (jl_expr_t*)lam->ast, 0, 0);
+                    if (f && jl_is_func(f) && ((jl_function_t*)f)->fptr == &jl_f_get_field) {
+                        jl_value_t *me = jl_exprarg(e,1);
+                        if (jl_is_topnode(me) ||
+                            (jl_is_symbol(me) && jl_binding_resolved_p(lam->module,(jl_sym_t*)me))) {
+                            jl_value_t *m = jl_static_eval(me, NULL, lam->module,
+                                                           NULL, (jl_expr_t*)lam->ast, 0, 0);
+                            if (m && jl_is_module(m))
+                                return jl_module_globalref((jl_module_t*)m, (jl_sym_t*)s);
+                        }
+                    }
+                }
+            }
             size_t i = 0;
             if (e->head == method_sym || e->head == abstracttype_sym || e->head == compositetype_sym ||
                 e->head == bitstype_sym || e->head == macro_sym || e->head == module_sym)

@@ -1,6 +1,6 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-typealias NonSliceIndex Union{Colon, Range{Int}, UnitRange{Int}, Array{Int,1}}
+typealias NonSliceIndex Union{Colon, AbstractVector}
 typealias ViewIndex Union{Int, NonSliceIndex}
 
 # LD is the last dimension up through which this object has efficient
@@ -20,10 +20,7 @@ typealias StridedMatrix{T,A<:DenseArray,I<:Tuple{Vararg{RangeIndex}}}  Union{Den
 typealias StridedVecOrMat{T} Union{StridedVector{T}, StridedMatrix{T}}
 
 # Simple utilities
-eltype{T,N,P,I}(V::SubArray{T,N,P,I}) = T
 eltype{T,N,P,I}(::Type{SubArray{T,N,P,I}}) = T
-ndims{T,N,P,I}(V::SubArray{T,N,P,I}) = N
-ndims{T,N,P,I}(::Type{SubArray{T,N,P,I}}) = N
 size(V::SubArray) = V.dims
 # size(V::SubArray, d::Integer) = d <= ndims(V) ? (@inbounds ret = V.dims[d]; ret) : 1
 length(V::SubArray) = prod(V.dims)
@@ -39,8 +36,8 @@ parentindexes(a::AbstractArray) = ntuple(i->1:size(a,i), ndims(a))
 
 ## SubArray creation
 # Drops singleton dimensions (those indexed with a scalar)
-slice(A::AbstractArray, I::ViewIndex...) = _slice(A, I)
-slice(A::AbstractArray, I::Tuple{Vararg{ViewIndex}}) = _slice(A, I)
+slice(A::AbstractArray, I::ViewIndex...) = _slice(A, to_indexes(I...))
+slice(A::AbstractArray, I::Tuple{Vararg{ViewIndex}}) = _slice(A, to_indexes(I...))
 function _slice(A, I)
     checkbounds(A, I...)
     slice_unsafe(A, I)
@@ -63,7 +60,8 @@ end
 # For S4, J[1] corresponds to I[2], because of the slice along
 # dimension 1 in S2
 
-@generated function slice_unsafe{T,NP,IndTypes}(A::AbstractArray{T,NP}, J::IndTypes)
+slice_unsafe(A::AbstractArray, J) = _slice_unsafe(A, to_indexes(J...))
+@generated function _slice_unsafe{T,NP,IndTypes}(A::AbstractArray{T,NP}, J::IndTypes)
     N = 0
     sizeexprs = Array(Any, 0)
     Jp = J.parameters
@@ -93,7 +91,8 @@ function _sub(A, I)
     sub_unsafe(A, I)
 end
 
-@generated function sub_unsafe{T,NP,IndTypes}(A::AbstractArray{T,NP}, J::IndTypes)
+sub_unsafe(A::AbstractArray, J) = _sub_unsafe(A, to_indexes(J...))
+@generated function _sub_unsafe{T,NP,IndTypes}(A::AbstractArray{T,NP}, J::IndTypes)
     sizeexprs = Array(Any, 0)
     Itypes = Array(Any, 0)
     Iexprs = Array(Any, 0)
@@ -129,7 +128,7 @@ end
 
 # Constructing from another SubArray
 # This "pops" the old SubArray and creates a more compact one
-@generated function slice_unsafe{T,NV,PV,IV,PLD,IndTypes}(V::SubArray{T,NV,PV,IV,PLD}, J::IndTypes)
+@generated function _slice_unsafe{T,NV,PV,IV,PLD,IndTypes}(V::SubArray{T,NV,PV,IV,PLD}, J::IndTypes)
     N = 0
     sizeexprs = Array(Any, 0)
     indexexprs = Array(Any, 0)
@@ -220,7 +219,7 @@ end
     end
 end
 
-@generated function sub_unsafe{T,NV,PV,IV,PLD,IndTypes}(V::SubArray{T,NV,PV,IV,PLD}, J::IndTypes)
+@generated function _sub_unsafe{T,NV,PV,IV,PLD,IndTypes}(V::SubArray{T,NV,PV,IV,PLD}, J::IndTypes)
     Jp = J.parameters
     IVp = IV.parameters
     N = length(Jp)
@@ -357,7 +356,7 @@ in(::Int, ::Colon) = true
 ## Strides
 @generated function strides{T,N,P,I}(V::SubArray{T,N,P,I})
     Ip = I.parameters
-    all(map(x->x<:Union{RangeIndex,Colon}, Ip)) || throw(ArgumentError("strides valid only for RangeIndex indexing"))
+    all(x->x<:Union{RangeIndex,Colon}, Ip) || throw(ArgumentError("strides valid only for RangeIndex indexing"))
     strideexprs = Array(Any, N+1)
     strideexprs[1] = 1
     i = 1
@@ -451,7 +450,7 @@ function nextLD(jprev, j, LD, die_next_vector)
         if jprev != Void && !(jprev <: Real)
             die_next_vector = true
         end
-    elseif die_next_vector || j <: Vector
+    elseif die_next_vector
         LD -= 1
         isdone = true
     elseif j == Colon
@@ -463,8 +462,11 @@ function nextLD(jprev, j, LD, die_next_vector)
             isdone = true
         end
         die_next_vector = true
+    elseif j <: AbstractVector
+        LD -= 1
+        isdone = true
     else
-        error("This shouldn't happen (linear indexing inference)")
+        error("unsupported SubArray index type $j")
     end
     jprev = j
     return jprev, LD, die_next_vector, isdone
@@ -603,9 +605,7 @@ end
 # Indexing with non-scalars. For now, this returns a copy, but changing that
 # is just a matter of deleting the explicit call to copy.
 getindex{T,N,P,IV}(V::SubArray{T,N,P,IV}, I::ViewIndex...) = copy(sub(V, I...))
-getindex{T,N,P,IV}(V::SubArray{T,N,P,IV}, I::Union{Real, AbstractVector, Colon}...) = getindex(V, to_indexes(I...)...)
 unsafe_getindex{T,N,P,IV}(V::SubArray{T,N,P,IV}, I::ViewIndex...) = copy(sub_unsafe(V, I))
-unsafe_getindex{T,N,P,IV}(V::SubArray{T,N,P,IV}, I::Union{Real, AbstractVector, Colon}...) = unsafe_getindex(V, to_indexes(I...)...)
 
 # Nonscalar setindex! falls back to the AbstractArray versions
 

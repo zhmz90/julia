@@ -13,7 +13,7 @@ spent on individual line(s).  The most common usage is to identify
 
 :mod:`Profile` implements what is known as a "sampling" or `statistical
 profiler
-<http://en.wikipedia.org/wiki/Profiling_(computer_programming)>`_.  It
+<https://en.wikipedia.org/wiki/Profiling_(computer_programming)>`_.  It
 works by periodically taking a backtrace during the execution of any
 task. Each backtrace captures the currently-running function and
 line number, plus the complete chain of function calls that led to
@@ -211,7 +211,7 @@ Options for controlling the display of profile results
 :func:`Profile.print` has more options than we've described so far.
 Let's see the full declaration::
 
-    function print(io::IO = STDOUT, data = fetch(); format = :tree, C = false, combine = true, cols = tty_cols())
+    function print(io::IO = STDOUT, data = fetch(); format = :tree, C = false, combine = true, cols = tty_cols(), maxdepth = typemax(Int), sortedby = :filefuncline)
 
 Let's discuss these arguments in order:
 
@@ -267,6 +267,10 @@ Let's discuss these arguments in order:
     Profile.print(s,cols = 500)
     close(s)
 
+- ``maxdepth`` can be used to limit the size of the output in
+  ``:tree`` format (it nests only up to level ``maxdepth``)
+- ``sortedby = :count`` sorts the ``:flat`` format in order of
+  increasing counts
 
 Configuration
 -------------

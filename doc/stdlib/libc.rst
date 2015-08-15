@@ -34,13 +34,24 @@
    library routine that sets it. Specifically, you cannot call ``errno`` at the next
    prompt in a REPL, because lots of code is executed between prompts.
 
-.. function:: strerror(n)
+.. function:: strerror(n=errno())
 
    Convert a system call error code to a descriptive string
 
+.. function:: GetLastError()
+
+   Call the Win32 ``GetLastError`` function [only available on Windows].
+
+.. function:: FormatMessage(n=GetLastError())
+
+   Convert a Win32 system call error code to a descriptive string [only available on Windows].
+
 .. function:: time(t::TmStruct)
 
-   Converts a ``TmStruct`` struct to a number of seconds since the epoch.
+   ::
+              time()
+
+   Get the system time in seconds since the epoch, with fairly high (typically, microsecond) resolution.
 
 .. function:: strftime([format], time)
 

@@ -21,6 +21,9 @@
 #include <llvm/ExecutionEngine/ExecutionEngine.h>
 #include <llvm/ExecutionEngine/JITEventListener.h>
 #include <llvm/IR/IntrinsicInst.h>
+#ifdef LLVM38
+#include <llvm/Analysis/BasicAliasAnalysis.h>
+#endif
 #ifdef LLVM37
 #include "llvm/IR/LegacyPassManager.h"
 #else
@@ -628,6 +631,7 @@ static Function *to_function(jl_lambda_info_t *li)
     DebugLoc olddl = builder.getCurrentDebugLocation();
     bool last_n_c = nested_compile;
     nested_compile = true;
+    jl_gc_inhibit_finalizers(nested_compile);
     Function *f = NULL;
     JL_TRY {
         f = emit_function(li);
@@ -646,7 +650,6 @@ static Function *to_function(jl_lambda_info_t *li)
         jl_rethrow_with_add("error compiling %s", li->name->name);
     }
     assert(f != NULL);
-    nested_compile = last_n_c;
 #ifdef JL_DEBUG_BUILD
 #ifdef LLVM35
     llvm::raw_fd_ostream out(1,false);
@@ -677,6 +680,8 @@ static Function *to_function(jl_lambda_info_t *li)
         builder.SetInsertPoint(old);
         builder.SetCurrentDebugLocation(olddl);
     }
+    nested_compile = last_n_c;
+    jl_gc_inhibit_finalizers(nested_compile);
     JL_SIGATOMIC_END();
     return f;
 }
@@ -690,7 +695,7 @@ static void jl_setup_module(Module *m, bool add)
 #endif
 #ifdef LLVM37
     if (jl_ExecutionEngine) {
-        m->setDataLayout(jl_ExecutionEngine->getDataLayout()->getStringRepresentation());
+        m->setDataLayout(jl_ExecutionEngine->getDataLayout().getStringRepresentation());
         m->setTargetTriple(jl_TargetMachine->getTargetTriple().str());
     }
 #elif LLVM36
@@ -889,6 +894,17 @@ void *jl_function_ptr(jl_function_t *f, jl_value_t *rt, jl_value_t *argt)
     assert(llvmf);
     JL_GC_POP();
 #ifdef USE_MCJIT
+    if (imaging_mode) {
+        // Copy the function out of the shadow module, unless this was done before
+        void *addr = (void*)(intptr_t)jl_ExecutionEngine->getFunctionAddress(llvmf->getName());
+        if (addr != nullptr) {
+            return addr;
+        }
+        Module *m = new Module("julia", jl_LLVMContext);
+        jl_setup_module(m, true);
+        FunctionMover mover(m, shadow_module);
+        llvmf = mover.CloneFunction(llvmf);
+    }
     return (void*)(intptr_t)jl_ExecutionEngine->getFunctionAddress(llvmf->getName());
 #else
     return jl_ExecutionEngine->getPointerToFunction(llvmf);
@@ -954,7 +970,7 @@ void *jl_get_llvmf(jl_function_t *f, jl_tupletype_t *tt, bool getwrapper)
             return NULL;
         }
         jl_printf(JL_STDERR,
-                  "Warning: Returned code may not match what actually runs.\n");
+                  "WARNING: Returned code may not match what actually runs.\n");
     }
     if (sf->linfo->specFunctionObject != NULL) {
         // found in the system image: force a recompile
@@ -1092,7 +1108,7 @@ const jl_value_t *jl_dump_function_asm(void *f)
         jl_dump_asm_internal(fptr, symsize, slide, object, fstream);
     }
     else {
-        jl_printf(JL_STDERR, "Warning: Unable to find function pointer\n");
+        jl_printf(JL_STDERR, "WARNING: Unable to find function pointer\n");
     }
     fstream.flush();
 
@@ -1254,16 +1270,6 @@ extern "C" void jl_write_malloc_log(void)
 
 // --- constant determination ---
 
-static bool in_vinfo(jl_sym_t *s, jl_array_t *vi)
-{
-    size_t i, l = jl_array_len(vi);
-    for(i=0; i < l; i++) {
-        if (s == (jl_sym_t*)jl_cellref(jl_cellref(vi, i), 0))
-            return true;
-    }
-    return false;
-}
-
 // try to statically evaluate, NULL if not possible
 extern "C"
 jl_value_t *jl_static_eval(jl_value_t *ex, void *ctx_, jl_module_t *mod,
@@ -1279,7 +1285,7 @@ jl_value_t *jl_static_eval(jl_value_t *ex, void *ctx_, jl_module_t *mod,
             isglob = is_global(sym, ctx);
         }
         else if (ast) {
-            isglob = !in_vinfo(sym, jl_lam_vinfo(ast)) && !in_vinfo(sym, jl_lam_capt(ast));
+            isglob = !jl_local_in_ast(ast, sym);
         }
         if (isglob) {
             size_t i;
@@ -1586,14 +1592,18 @@ static bool is_getfield_nonallocating(jl_datatype_t *ty, jl_value_t *fld)
     if (!jl_is_leaf_type((jl_value_t*)ty))
         return false;
     jl_sym_t *name = NULL;
-    if (jl_is_quotenode(fld) && jl_is_symbol(jl_fieldref(fld,0))) {
+    if (jl_is_quotenode(fld) && jl_is_symbol(jl_fieldref(fld,0)))
         name = (jl_sym_t*)jl_fieldref(fld,0);
-    }
+    int idx = -1;
+    if (name)
+        idx = jl_field_index(ty, name, 0);
+    else if (jl_is_long(fld))
+        idx = jl_unbox_long(fld)-1;
+    else if (jl_is_quotenode(fld) && jl_is_long(jl_fieldref(fld,0)))
+        idx = jl_unbox_long(jl_fieldref(fld,0))-1;
     for(size_t i=0; i < jl_svec_len(ty->types); i++) {
-        if (!(ty->fields[i].isptr ||
-              (name && name != jl_field_name(ty,i)))) {
+        if (!(ty->fields[i].isptr || (idx >= 0 && (size_t)idx != i)))
             return false;
-        }
     }
     return true;
 }
@@ -1713,11 +1723,7 @@ static Value *emit_lambda_closure(jl_value_t *expr, jl_codectx_t *ctx)
         jl_varinfo_t &vari = ctx->vars[s];
         if (vari.closureidx != -1) {
             int idx = vari.closureidx;
-#ifdef OVERLAP_SVEC_LEN
-            val = emit_nthptr((Value*)ctx->envArg, idx, tbaa_sveclen);
-#else
             val = emit_nthptr((Value*)ctx->envArg, idx+1, tbaa_sveclen);
-#endif
         }
         else {
             Value *l = vari.memvalue;
@@ -1863,22 +1869,23 @@ static Value *emit_f_is(jl_value_t *rt1, jl_value_t *rt2,
     bool isleaf = jl_is_leaf_type(rt1) && jl_is_leaf_type(rt2);
     bool isteq = jl_types_equal(rt1, rt2);
     bool isbits = isleaf && isteq && jl_is_bitstype(rt1);
-    if (isteq && isleaf && jl_is_datatype_singleton((jl_datatype_t*)rt1))
-        return ConstantInt::get(T_int1, 1);
+    bool issingleton = isteq && isleaf && jl_is_datatype_singleton((jl_datatype_t*)rt1);
     if (arg1 && !varg1) {
         varg1 = isbits ? auto_unbox(arg1, ctx) : emit_expr(arg1, ctx);
-        if (arg2 && !varg2 && !isbits && varg1->getType() == jl_pvalue_llvmt &&
+        if (!issingleton && arg2 && !varg2 && !isbits && varg1->getType() == jl_pvalue_llvmt &&
             rt1 != (jl_value_t*)jl_sym_type && might_need_root(arg1)) {
             make_gcroot(varg1, ctx);
         }
     }
-    Value *answer;
     if (arg2 && !varg2)
         varg2 = isbits ? auto_unbox(arg2, ctx) : emit_expr(arg2, ctx);
+    if (issingleton)
+        return ConstantInt::get(T_int1, 1);
     if (isleaf && !isteq && !jl_is_type_type(rt1) && !jl_is_type_type(rt2)) {
         ctx->gc.argDepth = last_depth;
         return ConstantInt::get(T_int1, 0);
     }
+    Value *answer;
     Type *at1 = varg1->getType();
     Type *at2 = varg2->getType();
     if (at1 != jl_pvalue_llvmt && at2 != jl_pvalue_llvmt) {
@@ -2815,17 +2822,9 @@ static Value *var_binding_pointer(jl_sym_t *s, jl_binding_t **pbnd,
         int idx = vi.closureidx;
         assert(((Value*)ctx->envArg)->getType() == jl_pvalue_llvmt);
         if (isBoxed(s, ctx)) {
-#ifdef OVERLAP_SVEC_LEN
-            return builder.CreatePointerCast(emit_nthptr((Value*)ctx->envArg, idx, tbaa_sveclen), jl_ppvalue_llvmt);
-#else
             return builder.CreatePointerCast(emit_nthptr((Value*)ctx->envArg, idx+1, tbaa_sveclen), jl_ppvalue_llvmt);
-#endif
         }
-#ifdef OVERLAP_SVEC_LEN
-        return emit_nthptr_addr((Value*)ctx->envArg, idx);
-#else
         return emit_nthptr_addr((Value*)ctx->envArg, idx+1);
-#endif
     }
     Value *l = vi.memvalue;
     if (l == NULL) return NULL;
@@ -3399,7 +3398,7 @@ static Value *emit_expr(jl_value_t *expr, jl_codectx_t *ctx, bool isboxed, bool 
     }
     else if (head == simdloop_sym) {
         if (!llvm::annotateSimdLoop(builder.GetInsertBlock()))
-            jl_printf(JL_STDERR, "Warning: could not attach metadata for @simd loop.\n");
+            jl_printf(JL_STDERR, "WARNING: could not attach metadata for @simd loop.\n");
         return NULL;
     }
     else if (head == meta_sym) {
@@ -3436,8 +3435,6 @@ static Value *emit_expr(jl_value_t *expr, jl_codectx_t *ctx, bool isboxed, bool 
 }
 
 // --- generate function bodies ---
-
-extern char *jl_stack_lo;
 
 extern "C" jl_svec_t *jl_svec_tvars_to_symbols(jl_svec_t *t);
 
@@ -3811,7 +3808,7 @@ static Function *gen_jlcall_wrapper(jl_lambda_info_t *lam, jl_expr_t *ast, Funct
     return w;
 }
 
-// cstyle = compile with c-callable signature, not jlcall
+// Compile to LLVM IR, using a specialized signature if applicable.
 static Function *emit_function(jl_lambda_info_t *lam)
 {
     // step 1. unpack AST and allocate codegen context for this function
@@ -4135,6 +4132,16 @@ static Function *emit_function(jl_lambda_info_t *lam)
         for(i=0; i < nreq; i++) {
             jl_sym_t *argname = jl_decl_var(jl_cellref(largs,i));
             jl_varinfo_t &varinfo = ctx.vars[argname];
+#ifdef LLVM38
+            varinfo.dinfo = ctx.dbuilder->createParameterVariable(
+                SP,                                 // Scope (current function will be fill in later)
+                argname->name,                      // Variable name
+                i+1,                                // Argument number (1-based)
+                fil,                                // File
+                ctx.lineno == -1 ? 0 : ctx.lineno,  // Line
+                // Variable type
+                julia_type_to_di(varinfo.declType,ctx.dbuilder,specsig));
+#else
             varinfo.dinfo = ctx.dbuilder->createLocalVariable(
                 llvm::dwarf::DW_TAG_arg_variable,    // Tag
                 SP,         // Scope (current function will be fill in later)
@@ -4145,35 +4152,53 @@ static Function *emit_function(jl_lambda_info_t *lam)
                 false,                  // May be optimized out
                 0,                      // Flags (TODO: Do we need any)
                 i+1);                   // Argument number (1-based)
-
+#endif
         }
         if (va) {
-            ctx.vars[ctx.vaName].dinfo = ctx.dbuilder->createLocalVariable(
-                llvm::dwarf::DW_TAG_arg_variable,    // Tag
-                SP,         // Scope (current function will be fill in later)
-                ctx.vaName->name, // Variable name
+#ifdef LLVM38
+            ctx.vars[ctx.vaName].dinfo = ctx.dbuilder->createParameterVariable(
+                SP,                     // Scope (current function will be fill in later)
+                ctx.vaName->name,       // Variable name
+                nreq + 1,               // Argument number (1-based)
                 fil,                    // File
                 ctx.lineno == -1 ? 0 : ctx.lineno,             // Line (for now, use lineno of the function)
+                julia_type_to_di(ctx.vars[ctx.vaName].declType,ctx.dbuilder,false));
+#else
+
+            ctx.vars[ctx.vaName].dinfo = ctx.dbuilder->createLocalVariable(
+                llvm::dwarf::DW_TAG_arg_variable,   // Tag
+                SP,                                 // Scope (current function will be fill in later)
+                ctx.vaName->name,                   // Variable name
+                fil,                                // File
+                ctx.lineno == -1 ? 0 : ctx.lineno,  // Line (for now, use lineno of the function)
                 julia_type_to_di(ctx.vars[ctx.vaName].declType,ctx.dbuilder,false),      // Variable type
                 false,                  // May be optimized out
                 0,                      // Flags (TODO: Do we need any)
                 nreq + 1);              // Argument number (1-based)
+#endif
         }
         for(i=0; i < vinfoslen; i++) {
             jl_sym_t *s = (jl_sym_t*)jl_cellref(jl_cellref(vinfos,i),0);
             jl_varinfo_t &varinfo = ctx.vars[s];
             if (varinfo.isArgument)
                 continue;
+#ifdef LLVM38
+            varinfo.dinfo = ctx.dbuilder->createAutoVariable(
+#else
             varinfo.dinfo = ctx.dbuilder->createLocalVariable(
                 llvm::dwarf::DW_TAG_auto_variable,    // Tag
+#endif
                 SP,                     // Scope (current function will be fill in later)
                 s->name,                // Variable name
                 fil,                    // File
                 ctx.lineno == -1 ? 0 : ctx.lineno, // Line (for now, use lineno of the function)
                 julia_type_to_di(varinfo.declType,ctx.dbuilder,specsig), // Variable type
                 false,                  // May be optimized out
-                0,                      // Flags (TODO: Do we need any)
-                0);                   // Argument number (1-based)
+                0                       // Flags (TODO: Do we need any)
+#ifndef LLVM38
+                ,0                      // Argument number (1-based)
+#endif
+                );
         }
         for(i=0; i < captvinfoslen; i++) {
             jl_array_t *vi = (jl_array_t*)jl_cellref(captvinfos, i);
@@ -4181,16 +4206,23 @@ static Function *emit_function(jl_lambda_info_t *lam)
             jl_sym_t *vname = ((jl_sym_t*)jl_cellref(vi,0));
             assert(jl_is_symbol(vname));
             jl_varinfo_t &varinfo = ctx.vars[vname];
+#ifdef LLVM38
+            varinfo.dinfo = ctx.dbuilder->createAutoVariable(
+#else
             varinfo.dinfo = ctx.dbuilder->createLocalVariable(
                 llvm::dwarf::DW_TAG_auto_variable,    // Tag
+#endif
                 SP,                     // Scope (current function will be filled in later)
                 vname->name,            // Variable name
                 fil,                    // File
                 ctx.lineno == -1 ? 0 : ctx.lineno, // Line (for now, use lineno of the function)
                 julia_type_to_di(varinfo.declType,ctx.dbuilder,specsig), // Variable type
                 false,                  // May be optimized out
-                0,                      // Flags (TODO: Do we need any)
-                0);                   // Argument number (1-based)
+                0                       // Flags (TODO: Do we need any)
+#ifndef LLVM38
+                ,0                      // Argument number (1-based)
+#endif
+                );
         }
     }
 
@@ -5522,7 +5554,7 @@ extern "C" void jl_init_codegen(void)
 #endif
     std::string TheCPU = strcmp(jl_options.cpu_target,"native") ? jl_options.cpu_target : sys::getHostCPUName();
     if (TheCPU.empty() || TheCPU == "generic") {
-        jl_printf(JL_STDERR, "warning: unable to determine host cpu name.\n");
+        jl_printf(JL_STDERR, "WARNING: unable to determine host cpu name.\n");
 #ifdef _CPU_ARM_
         MAttrs.append(1, "+vfp2"); // the processors that don't have VFP are old and (hopefully) rare. this affects the platform calling convention.
 #endif
@@ -5554,7 +5586,9 @@ extern "C" void jl_init_codegen(void)
             );
     delete targetMachine;
     assert(jl_TargetMachine);
-#if defined(LLVM36) && !defined(LLVM37)
+#if defined(LLVM38)
+    engine_module->setDataLayout(jl_TargetMachine->createDataLayout());
+#elif defined(LLVM36) && !defined(LLVM37)
     engine_module->setDataLayout(jl_TargetMachine->getSubtargetImpl()->getDataLayout());
 #elif defined(LLVM35) && !defined(LLVM37)
     engine_module->setDataLayout(jl_TargetMachine->getDataLayout());
@@ -5575,8 +5609,8 @@ extern "C" void jl_init_codegen(void)
     mbuilder = new MDBuilder(getGlobalContext());
 
 #ifdef LLVM37
-    m->setDataLayout(jl_ExecutionEngine->getDataLayout()->getStringRepresentation());
-    engine_module->setDataLayout(jl_ExecutionEngine->getDataLayout()->getStringRepresentation());
+    m->setDataLayout(jl_ExecutionEngine->getDataLayout().getStringRepresentation());
+    engine_module->setDataLayout(jl_ExecutionEngine->getDataLayout().getStringRepresentation());
     m->setTargetTriple(jl_TargetMachine->getTargetTriple().str());
     engine_module->setTargetTriple(jl_TargetMachine->getTargetTriple().str());
 #elif LLVM36

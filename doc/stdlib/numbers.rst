@@ -50,6 +50,19 @@ Data Formats
 
 .. function:: parse(type, str, [base])
 
+   ::
+              parse(str, start; greedy=true, raise=true)
+
+   Parse the expression string and return an expression (which could later be passed to eval for execution). Start is the index of the first character to start parsing. If ``greedy`` is true (default), ``parse`` will try to consume as much input as it can; otherwise, it will stop as soon as it has parsed a valid expression. Incomplete but otherwise syntactically valid expressions will return ``Expr(:incomplete, "(error message)")``. If ``raise`` is true (default), syntax errors other than incomplete expressions will raise an error. If ``raise`` is false, ``parse`` will return an expression that will raise an error upon evaluation.
+
+   ::
+              parse(str; raise=true)
+
+   Parse the whole string greedily, returning a single expression.  An error is thrown if there are additional characters after the first expression. If ``raise`` is true (default), syntax errors will raise an error; otherwise, ``parse`` will return an expression that will raise an error upon evaluation.
+
+   ::
+              parse(type, str, [base])
+
    Parse a string as a number. If the type is an integer type, then a base can be specified (the default is 10). If the type is a floating point type, the string is parsed as a decimal floating point number.
    If the string does not contain a valid number, an error is raised.
 
@@ -72,7 +85,7 @@ Data Formats
 
 .. function:: float(x)
 
-   Convert a number, array, or string to a ``FloatingPoint`` data type. For numeric data, the smallest suitable ``FloatingPoint`` type is used. Converts strings to ``Float64``.
+   Convert a number, array, or string to a ``AbstractFloat`` data type. For numeric data, the smallest suitable ``AbstractFloat`` type is used. Converts strings to ``Float64``.
 
 .. function:: significand(x)
 
@@ -116,7 +129,6 @@ Data Formats
 .. function:: bytes2hex(bin_arr::Array{UInt8, 1})
 
    Convert an array of bytes to its hexadecimal representation. All characters are in lower-case. Returns an ASCIIString.
-
 
 General Number Functions and Constants
 --------------------------------------
@@ -209,7 +221,7 @@ General Number Functions and Constants
 
    Get the next floating point number in lexicographic order
 
-.. function:: prevfloat(f) -> FloatingPoint
+.. function:: prevfloat(f) -> AbstractFloat
 
    Get the previous floating point number in lexicographic order
 
@@ -273,12 +285,12 @@ General Number Functions and Constants
    ``big`` string literal.
 
    .. doctest::
+
       julia> BigFloat(2.1)
-      2.100000000000000088817841970012523233890533447265625e+00 with 256 bits of precision
+      2.100000000000000088817841970012523233890533447265625000000000000000000000000000
 
       julia> big"2.1"
-      2.099999999999999999999999999999999999999999999999999999999999999999999999999986e+00 with 256 bits of precision
-
+      2.099999999999999999999999999999999999999999999999999999999999999999999999999986
 
 .. function:: get_rounding(T)
 
@@ -309,6 +321,25 @@ General Number Functions and Constants
        set_rounding(T, old)
 
    See ``get_rounding`` for available rounding modes.
+
+.. function:: get_zero_subnormals() -> Bool
+
+   Returns ``false`` if operations on subnormal floating-point values
+   ("denormals") obey rules for IEEE arithmetic, and ``true`` if they
+   might be converted to zeros.
+
+.. function:: set_zero_subnormals(yes::Bool) -> Bool
+
+   If ``yes`` is ``false``, subsequent floating-point operations follow
+   rules for IEEE arithmetic on subnormal values ("denormals").
+   Otherwise, floating-point operations are permitted (but not required)
+   to convert subnormal inputs or outputs to zero.  Returns ``true``
+   unless ``yes==true`` but the hardware does not support zeroing of
+   subnormal numbers.
+
+   ``set_zero_subnormals(true)`` can speed up some computations on
+   some hardware. However, it can break identities such as
+   ``(x-y==0) == (x==y)``.
 
 Integers
 ~~~~~~~~
@@ -376,7 +407,8 @@ Integers
    	julia> isprime(3)
    	true
 
-.. function:: isprime(x::BigInt, [reps = 25]) -> Bool
+   ::
+              isprime(x::BigInt, [reps = 25]) -> Bool
 
    Probabilistic primality test. Returns ``true`` if ``x`` is prime; and
    ``false`` if ``x`` is not prime with high probability. The false positive
@@ -388,9 +420,38 @@ Integers
    	julia> isprime(big(3))
    	true
 
-.. function:: primes(n)
+.. function:: isprime(x::BigInt, [reps = 25]) -> Bool
 
-   Returns a collection of the prime numbers <= ``n``.
+   ::
+              isprime(x::Integer) -> Bool
+
+   Returns ``true`` if ``x`` is prime, and ``false`` otherwise.
+
+   .. doctest::
+
+   	julia> isprime(3)
+   	true
+
+   ::
+              isprime(x::BigInt, [reps = 25]) -> Bool
+
+   Probabilistic primality test. Returns ``true`` if ``x`` is prime; and
+   ``false`` if ``x`` is not prime with high probability. The false positive
+   rate is about ``0.25^reps``. ``reps = 25`` is considered safe for
+   cryptographic applications (Knuth, Seminumerical Algorithms).
+
+   .. doctest::
+
+   	julia> isprime(big(3))
+   	true
+
+.. function:: primes([lo,] hi)
+
+   Returns a collection of the prime numbers (from ``lo``, if specified) up to ``hi``.
+
+.. function:: primesmask([lo,] hi)
+
+   Returns a prime sieve, as a ``BitArray``, of the positive integers (from ``lo``, if specified) up to ``hi``. Useful when working with either primes or composite numbers.
 
 .. function:: isodd(x::Integer) -> Bool
 
@@ -420,7 +481,7 @@ BigFloats
 ---------
 The `BigFloat` type implements arbitrary-precision floating-point arithmetic using the `GNU MPFR library <http://www.mpfr.org/>`_.
 
-.. function:: precision(num::FloatingPoint)
+.. function:: precision(num::AbstractFloat)
 
    Get the precision of a floating point number, as defined by the effective number of bits in the mantissa.
 
@@ -507,3 +568,10 @@ As ``BigInt`` represents unbounded integers, the interval must be specified (e.g
 .. function:: randexp!([rng], A::Array{Float64,N})
 
    Fill the array A with random numbers following the exponential distribution (with scale 1).
+
+.. function:: randjump(r::MersenneTwister, jumps, [jumppoly]) -> Vector{MersenneTwister}
+
+   Create an array of the size ``jumps`` of initialized ``MersenneTwister`` RNG objects where the first RNG object given as a parameter and following ``MersenneTwister`` RNGs in the array initialized such that a state of the RNG object in the array would be moved forward (without generating numbers) from a previous RNG object array element on a particular number of steps encoded by the jump polynomial ``jumppoly``.
+
+   Default jump polynomial moves forward ``MersenneTwister`` RNG state by 10^20 steps.
+

@@ -492,7 +492,11 @@ static void jl_dump_shadow(char *fname, int jit_model, const char *sysimg_data, 
 #ifdef LLVM37
     // Reset the target triple to make sure it matches the new target machine
     clone->setTargetTriple(TM->getTargetTriple().str());
+#ifdef LLVM38
+    clone->setDataLayout(TM->createDataLayout());
+#else
     clone->setDataLayout(TM->getDataLayout()->getStringRepresentation());
+#endif
 #endif
 
     // add metadata information
@@ -971,17 +975,10 @@ static Value *emit_typeof(Value *p)
     if (p->getType() == jl_pvalue_llvmt) {
         Value *tt = builder.CreateBitCast(p, jl_ppvalue_llvmt);
         tt = builder.CreateLoad(emit_typeptr_addr(tt), false);
-#ifdef OVERLAP_SVEC_LEN
-        tt = builder.CreateIntToPtr(builder.CreateAnd(
-                    builder.CreatePtrToInt(tt, T_int64),
-                    ConstantInt::get(T_int64,0x000ffffffffffffe)),
-                jl_pvalue_llvmt);
-#else
         tt = builder.CreateIntToPtr(builder.CreateAnd(
                     builder.CreatePtrToInt(tt, T_size),
-                    ConstantInt::get(T_size,~(uptrint_t)3)),
+                    ConstantInt::get(T_size,~(uptrint_t)15)),
                 jl_pvalue_llvmt);
-#endif
         return tt;
     }
     return literal_pointer_val(julia_type_of(p));
@@ -2044,17 +2041,14 @@ static Value *emit_new_struct(jl_value_t *ty, size_t nargs, jl_value_t **args, j
         if (jl_isbits(sty)) {
             Type *lt = julia_type_to_llvm(ty);
             size_t na = nargs-1 < nf ? nargs-1 : nf;
-            if (lt == T_void) {
-                for (size_t i=0; i < na; i++)
-                    emit_unboxed(args[i+1], ctx);  // do side effects
-                return mark_julia_type(UndefValue::get(NoopType),ty);
-            }
-            Value *strct = UndefValue::get(lt);
+            Value *strct = UndefValue::get(lt == T_void ? NoopType : lt);
             unsigned idx = 0;
             for (size_t i=0; i < na; i++) {
                 jl_value_t *jtype = jl_svecref(sty->types,i);
                 Type *fty = julia_type_to_llvm(jtype);
                 Value *fval = emit_unboxed(args[i+1], ctx);
+                if (!jl_subtype(expr_type(args[i+1],ctx), jtype, 0))
+                    emit_typecheck(fval, jtype, "new", ctx);
                 if (!type_is_ghost(fty)) {
                     fval = emit_unbox(fty, fval, jtype);
                     if (fty == T_int1)

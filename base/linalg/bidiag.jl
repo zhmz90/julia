@@ -6,15 +6,14 @@ type Bidiagonal{T} <: AbstractMatrix{T}
     ev::Vector{T} # sub/super diagonal
     isupper::Bool # is upper bidiagonal (true) or lower (false)
     function Bidiagonal{T}(dv::Vector{T}, ev::Vector{T}, isupper::Bool)
-        if length(ev)==length(dv)-1
-            new(dv, ev, isupper)
-        else
-            throw(DimensionMismatch("Length of diagonal vector is $(length(dv)), length of off-diagonal vector is $(length(ev))"))
+        if length(ev) != length(dv)-1
+            throw(DimensionMismatch("length of diagonal vector is $(length(dv)), length of off-diagonal vector is $(length(ev))"))
         end
+        new(dv, ev, isupper)
     end
 end
-Bidiagonal{T}(dv::AbstractVector{T}, ev::AbstractVector{T}, isupper::Bool)=Bidiagonal{T}(copy(dv), copy(ev), isupper)
-Bidiagonal{T}(dv::AbstractVector{T}, ev::AbstractVector{T}) = error("Did you want an upper or lower Bidiagonal? Try again with an additional true (upper) or false (lower) argument.")
+Bidiagonal{T}(dv::AbstractVector{T}, ev::AbstractVector{T}, isupper::Bool) = Bidiagonal{T}(dv, ev, isupper)
+Bidiagonal{T}(dv::AbstractVector{T}, ev::AbstractVector{T}) = throw(ArgumentError("did you want an upper or lower Bidiagonal? Try again with an additional true (upper) or false (lower) argument."))
 
 #Convert from BLAS uplo flag to boolean internal
 Bidiagonal(dv::AbstractVector, ev::AbstractVector, uplo::Char) = begin
@@ -35,7 +34,9 @@ end
 Bidiagonal(A::AbstractMatrix, isupper::Bool)=Bidiagonal(diag(A), diag(A, isupper?1:-1), isupper)
 
 function getindex{T}(A::Bidiagonal{T}, i::Integer, j::Integer)
-    (1<=i<=size(A,2) && 1<=j<=size(A,2)) || throw(BoundsError())
+    if !((1 <= i <= size(A,2)) && (1 <= j <= size(A,2)))
+        throw(BoundsError(A,(i,j)))
+    end
     i == j ? A.dv[i] : (A.isupper && (i == j-1)) || (!A.isupper && (i == j+1)) ? A.ev[min(i,j)] : zero(T)
 end
 
@@ -52,6 +53,8 @@ function convert{T}(::Type{Tridiagonal{T}}, A::Bidiagonal{T})
     A.isupper ? Tridiagonal(z, A.dv, A.ev) : Tridiagonal(A.ev, A.dv, z)
 end
 promote_rule{T,S}(::Type{Tridiagonal{T}}, ::Type{Bidiagonal{S}})=Tridiagonal{promote_type(T,S)}
+
+big(B::Bidiagonal) = Bidiagonal(big(B.dv), big(B.ev), B.isupper)
 
 ###################
 # LAPACK routines #
@@ -76,12 +79,20 @@ function show(io::IO, M::Bidiagonal)
     println(io, summary(M), ":")
     print(io, " diag:")
     print_matrix(io, (M.dv)')
-    print(io, M.isupper?"\nsuper:":"\n  sub:")
+    print(io, M.isupper?"\n super:":"\n  sub:")
     print_matrix(io, (M.ev)')
 end
 
 size(M::Bidiagonal) = (length(M.dv), length(M.dv))
-size(M::Bidiagonal, d::Integer) = d<1 ? throw(ArgumentError("dimension must be ≥ 1, got $d")) : (d<=2 ? length(M.dv) : 1)
+function size(M::Bidiagonal, d::Integer)
+    if d < 1
+        throw(ArgumentError("dimension must be ≥ 1, got $d"))
+    elseif d <= 2
+        return length(M.dv)
+    else
+        return 1
+    end
+end
 
 #Elementary operations
 for func in (:conj, :copy, :round, :trunc, :floor, :ceil)
@@ -97,17 +108,53 @@ ctranspose(M::Bidiagonal) = Bidiagonal(conj(M.dv), conj(M.ev), !M.isupper)
 istriu(M::Bidiagonal) = M.isupper || all(M.ev .== 0)
 istril(M::Bidiagonal) = !M.isupper || all(M.ev .== 0)
 
+function tril!(M::Bidiagonal, k::Integer=0)
+    n = length(M.dv)
+    if abs(k) > n
+        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($n,$n)"))
+    elseif M.isupper && k < 0
+        fill!(M.dv,0)
+        fill!(M.ev,0)
+    elseif k < -1
+        fill!(M.dv,0)
+        fill!(M.ev,0)
+    elseif M.isupper && k == 0
+        fill!(M.ev,0)
+    elseif !M.isupper && k == -1
+        fill!(M.dv,0)
+    end
+    return M
+end
+
+function triu!(M::Bidiagonal, k::Integer=0)
+    n = length(M.dv)
+    if abs(k) > n
+        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($n,$n)"))
+    elseif !M.isupper && k > 0
+        fill!(M.dv,0)
+        fill!(M.ev,0)
+    elseif k > 1
+        fill!(M.dv,0)
+        fill!(M.ev,0)
+    elseif !M.isupper && k == 0
+        fill!(M.ev,0)
+    elseif M.isupper && k == 1
+        fill!(M.dv,0)
+    end
+    return M
+end
+
 function diag{T}(M::Bidiagonal{T}, n::Integer=0)
-    if n==0
+    if n == 0
         return M.dv
-    elseif n==1
+    elseif n == 1
         return M.isupper ? M.ev : zeros(T, size(M,1)-1)
-    elseif n==-1
+    elseif n == -1
         return M.isupper ? zeros(T, size(M,1)-1) : M.ev
-    elseif -size(M,1)<n<size(M,1)
+    elseif -size(M,1) < n < size(M,1)
         return zeros(T, size(M,1)-abs(n))
     else
-        throw(BoundsError("Matrix size is $(size(M)), n is $n"))
+        throw(ArgumentError("matrix size is $(size(M)), n is $n"))
     end
 end
 
@@ -127,7 +174,7 @@ function -(A::Bidiagonal, B::Bidiagonal)
     end
 end
 
--(A::Bidiagonal)=Bidiagonal(-A.dv,-A.ev)
+-(A::Bidiagonal)=Bidiagonal(-A.dv,-A.ev,A.isupper)
 *(A::Bidiagonal, B::Number) = Bidiagonal(A.dv*B, A.ev*B, A.isupper)
 *(B::Number, A::Bidiagonal) = A*B
 /(A::Bidiagonal, B::Number) = Bidiagonal(A.dv/B, A.ev/B, A.isupper)
@@ -150,7 +197,7 @@ function A_ldiv_B!(A::Union{Bidiagonal, AbstractTriangular}, B::AbstractMatrix)
     tmp = similar(B,size(B,1))
     n = size(B, 1)
     if nA != n
-        throw(DimensionMismatch("Size of A is ($nA,$mA), corresponding dimension of B is $n"))
+        throw(DimensionMismatch("size of A is ($nA,$mA), corresponding dimension of B is $n"))
     end
     for i = 1:size(B,2)
         copy!(tmp, 1, B, (i - 1)*n + 1, n)
@@ -167,7 +214,7 @@ for func in (:Ac_ldiv_B!, :At_ldiv_B!)
         tmp = similar(B,size(B,1))
         n = size(B, 1)
         if mA != n
-            throw(DimensionMismatch("Size of A' is ($mA,$nA), corresponding dimension of B is $n"))
+            throw(DimensionMismatch("size of A' is ($mA,$nA), corresponding dimension of B is $n"))
         end
         for i = 1:size(B,2)
             copy!(tmp, 1, B, (i - 1)*n + 1, n)
@@ -184,7 +231,7 @@ At_ldiv_B(A::Union{Bidiagonal, AbstractTriangular}, B::AbstractMatrix) = At_ldiv
 function naivesub!{T}(A::Bidiagonal{T}, b::AbstractVector, x::AbstractVector = b)
     N = size(A, 2)
     if N != length(b) || N != length(x)
-        throw(DimensionMismatch())
+        throw(DimensionMismatch("second dimension of A, $N, does not match one of the lengths of x, $(length(x)), or b, $(length(b))"))
     end
     if !A.isupper #do forward substitution
         for j = 1:N
@@ -237,4 +284,3 @@ function eigvecs{T}(M::Bidiagonal{T})
     Q #Actually Triangular
 end
 eigfact(M::Bidiagonal) = Eigen(eigvals(M), eigvecs(M))
-

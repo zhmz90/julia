@@ -101,7 +101,7 @@ function isvalid(::Type{UTF16String}, data::AbstractArray{UInt16})
     return i > n || !is_surrogate_codeunit(data[i])
 end
 
-"
+"""
 Converts an `AbstractString` to a `UTF16String`
 
 ### Returns:
@@ -109,7 +109,7 @@ Converts an `AbstractString` to a `UTF16String`
 
 ### Throws:
 *   `UnicodeError`
-"
+"""
 function convert(::Type{UTF16String}, str::AbstractString)
     len, flags, num4byte = unsafe_checkstring(str)
     buf = Vector{UInt16}(len+num4byte+1)
@@ -120,15 +120,15 @@ function convert(::Type{UTF16String}, str::AbstractString)
             buf[out += 1] = UInt16(c)
         else
             # output surrogate pair
-            buf[out += 1] = UInt16(0xd7c0 + (ch >>> 10))
-            buf[out += 1] = UInt16(0xdc00 + (ch & 0x3ff))
+            buf[out += 1] = UInt16(0xd7c0 + (c >>> 10))
+            buf[out += 1] = UInt16(0xdc00 + (c & 0x3ff))
         end
     end
     @inbounds buf[out + 1] = 0 # NULL termination
     UTF16String(buf)
 end
 
-"
+"""
 Converts a `UTF8String` to a `UTF16String`
 
 ### Returns:
@@ -136,7 +136,7 @@ Converts a `UTF8String` to a `UTF16String`
 
 ### Throws:
 *   `UnicodeError`
-"
+"""
 function convert(::Type{UTF16String}, str::UTF8String)
     dat = str.data
     # handle zero length string quickly
@@ -174,7 +174,7 @@ function convert(::Type{UTF16String}, str::UTF8String)
     UTF16String(buf)
 end
 
-"
+"""
 Converts a `UTF16String` to a `UTF8String`
 
 ### Returns:
@@ -182,7 +182,7 @@ Converts a `UTF16String` to a `UTF8String`
 
 ### Throws:
 *   `UnicodeError`
-"
+"""
 function convert(::Type{UTF8String}, str::UTF16String)
     dat = str.data
     len = sizeof(dat) >>> 1
@@ -194,45 +194,31 @@ function convert(::Type{UTF8String}, str::UTF16String)
     return encode_to_utf8(UInt16, dat, len + num2byte + num3byte*2 + num4byte*3)
 end
 
-"
-Converts an already validated vector of `UInt16` or `UInt32` to a `UTF8String`
+"""
+Converts an already validated UTF-32 encoded vector of `UInt32` to a `UTF16String`
 
 ### Input Arguments:
-* `dat` Vector of code units (`UInt16` or `UInt32`), explicit `\0` is not converted
-* `len` length of output in bytes
+*   `dat::Vector{UInt32}` UTF-32 encoded data
+*   `len`                 length of output in 16-bit words
 
 ### Returns:
-* `UTF8String`
-"
-function encode_to_utf8{T<:Union{UInt16, UInt32}}(::Type{T}, dat, len)
-    buf = Vector{UInt8}(len)
+*   `::UTF16String`
+"""
+function encode_to_utf16(dat, len)
+    buf = Vector{UInt16}(len)
+    @inbounds buf[len] = 0 # NULL termination
     out = 0
     pos = 0
     @inbounds while out < len
-        ch::UInt32 = dat[pos += 1]
-        # Handle ASCII characters
-        if ch <= 0x7f
-            buf[out += 1] = ch
-        # Handle 0x80-0x7ff
-        elseif ch < 0x800
-            buf[out += 1] = 0xc0 | (ch >>> 6)
-            buf[out += 1] = 0x80 | (ch & 0x3f)
-        # Handle 0x10000-0x10ffff (if input is UInt32)
-        elseif ch > 0xffff # this is only for T == UInt32, should not be generated for UInt16
-            output_utf8_4byte!(buf, out, ch)
-            out += 4
-        # Handle surrogate pairs
-        elseif is_surrogate_codeunit(ch)
-            output_utf8_4byte!(buf, out, get_supplementary(ch, dat[pos += 1]))
-            out += 4
-        # Handle 0x800-0xd7ff, 0xe000-0xffff UCS-2 characters
-        else
-            buf[out += 1] = 0xe0 | ((ch >>> 12) & 0x3f)
-            buf[out += 1] = 0x80 | ((ch >>> 6) & 0x3f)
-            buf[out += 1] = 0x80 | (ch & 0x3f)
+        ch = UInt32(dat[pos += 1])
+        if ch > 0xffff
+            # Output surrogate pair for 0x10000-0x10ffff
+            buf[out += 1] = 0xd7c0 + (ch >>> 10)
+            ch = 0xdc00 + (ch & 0x3ff)
         end
+        buf[out += 1] = ch
     end
-    UTF8String(buf)
+    UTF16String(buf)
 end
 
 function convert(::Type{UTF16String}, str::ASCIIString)

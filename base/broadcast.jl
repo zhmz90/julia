@@ -6,8 +6,7 @@ using ..Cartesian
 import Base.promote_eltype
 import Base.@get!
 import Base.num_bit_chunks, Base._msk_end, Base.unsafe_bitgetindex
-import Base.(.+), Base.(.-), Base.(.*), Base.(./), Base.(.\), Base.(.//)
-import Base.(.==), Base.(.<), Base.(.!=), Base.(.<=)
+import Base: .+, .-, .*, ./, .\, .//, .==, .<, .!=, .<=, .%, .<<, .>>, .^
 export broadcast, broadcast!, broadcast_function, broadcast!_function, bitbroadcast
 export broadcast_getindex, broadcast_setindex!
 
@@ -68,7 +67,7 @@ end
 # B must have already been set to the appropriate size.
 
 # version using cartesian indexing
-function gen_broadcast_body_cartesian(nd::Int, narrays::Int, f::Function)
+function gen_broadcast_body_cartesian(nd::Int, narrays::Int, f)
     F = Expr(:quote, f)
     quote
         @assert ndims(B) == $nd
@@ -83,7 +82,7 @@ function gen_broadcast_body_cartesian(nd::Int, narrays::Int, f::Function)
 end
 
 # version using start/next for iterating over the arguments
-function gen_broadcast_body_iter(nd::Int, narrays::Int, f::Function)
+function gen_broadcast_body_iter(nd::Int, narrays::Int, f)
     F = Expr(:quote, f)
     quote
         @assert ndims(B) == $nd
@@ -122,7 +121,7 @@ function dumpbitcache(Bc::Vector{UInt64}, bind::Int, C::Vector{Bool})
 end
 
 # using cartesian indexing
-function gen_broadcast_body_cartesian_tobitarray(nd::Int, narrays::Int, f::Function)
+function gen_broadcast_body_cartesian_tobitarray(nd::Int, narrays::Int, f)
     F = Expr(:quote, f)
     quote
         @assert ndims(B) == $nd
@@ -151,7 +150,7 @@ function gen_broadcast_body_cartesian_tobitarray(nd::Int, narrays::Int, f::Funct
 end
 
 # using start/next
-function gen_broadcast_body_iter_tobitarray(nd::Int, narrays::Int, f::Function)
+function gen_broadcast_body_iter_tobitarray(nd::Int, narrays::Int, f)
     F = Expr(:quote, f)
     quote
         @assert ndims(B) == $nd
@@ -182,7 +181,7 @@ function gen_broadcast_body_iter_tobitarray(nd::Int, narrays::Int, f::Function)
     end
 end
 
-function gen_broadcast_function(genbody::Function, nd::Int, narrays::Int, f::Function)
+function gen_broadcast_function(genbody::Function, nd::Int, narrays::Int, f)
     As = [symbol("A_"*string(i)) for i = 1:narrays]
     body = genbody(nd, narrays, f)
     @eval let
@@ -194,7 +193,7 @@ function gen_broadcast_function(genbody::Function, nd::Int, narrays::Int, f::Fun
     end
 end
 
-function gen_broadcast_function_tobitarray(genbody::Function, nd::Int, narrays::Int, f::Function)
+function gen_broadcast_function_tobitarray(genbody::Function, nd::Int, narrays::Int, f)
     As = [symbol("A_"*string(i)) for i = 1:narrays]
     body = genbody(nd, narrays, f)
     @eval let
@@ -216,14 +215,14 @@ for (Bsig, Asig, gbf, gbb) in
      (Any                               , Any                                     ,
       :gen_broadcast_function           , :gen_broadcast_body_cartesian           ))
 
-    @eval let cache = Dict{Function,Dict{Int,Dict{Int,Function}}}()
+    @eval let cache = Dict{Any,Dict{Int,Dict{Int,Any}}}()
         global broadcast!
-        function broadcast!(f::Function, B::$Bsig, As::$Asig...)
+        function broadcast!(f, B::$Bsig, As::$Asig...)
             nd = ndims(B)
             narrays = length(As)
 
-            cache_f    = @get! cache      f       Dict{Int,Dict{Int,Function}}()
-            cache_f_na = @get! cache_f    narrays Dict{Int,Function}()
+            cache_f    = @get! cache      f       Dict{Int,Dict{Int,Any}}()
+            cache_f_na = @get! cache_f    narrays Dict{Int,Any}()
             func       = @get! cache_f_na nd      $gbf($gbb, nd, narrays, f)
 
             func(B, As...)
@@ -233,12 +232,12 @@ for (Bsig, Asig, gbf, gbb) in
 end
 
 
-broadcast(f::Function, As...) = broadcast!(f, Array(promote_eltype(As...), broadcast_shape(As...)), As...)
+broadcast(f, As...) = broadcast!(f, Array(promote_eltype(As...), broadcast_shape(As...)), As...)
 
-bitbroadcast(f::Function, As...) = broadcast!(f, BitArray(broadcast_shape(As...)), As...)
+bitbroadcast(f, As...) = broadcast!(f, BitArray(broadcast_shape(As...)), As...)
 
-broadcast!_function(f::Function) = (B, As...) -> broadcast!(f, B, As...)
-broadcast_function(f::Function) = (As...) -> broadcast(f, As...)
+broadcast!_function(f) = (B, As...) -> broadcast!(f, B, As...)
+broadcast_function(f) = (As...) -> broadcast(f, As...)
 
 broadcast_getindex(src::AbstractArray, I::AbstractArray...) = broadcast_getindex!(Array(eltype(src), broadcast_shape(I...)), src, I...)
 @generated function broadcast_getindex!(dest::AbstractArray, src::AbstractArray, I::AbstractArray...)

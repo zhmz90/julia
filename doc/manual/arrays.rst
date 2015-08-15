@@ -12,7 +12,10 @@ attention to their array implementation at the expense of other
 containers. Julia does not treat arrays in any special way. The array
 library is implemented almost completely in Julia itself, and derives
 its performance from the compiler, just like any other code written in
-Julia.
+Julia. As such, it's also possible to define custom array types by
+inheriting from ``AbstractArray.`` See the :ref:`manual section on the
+AbstractArray interface <man-interfaces-abstractarray>` for more details
+on implementing a custom array type.
 
 An array is a collection of objects stored in a multi-dimensional
 grid.  In the most general case, an array may contain objects of type
@@ -430,9 +433,9 @@ the name of the function to vectorize. Here is a simple example:
 
     julia> methods(square)
     # 4 methods for generic function "square":
-    square{T<:Number}(::AbstractArray{T<:Number,1}) at operators.jl:359
-    square{T<:Number}(::AbstractArray{T<:Number,2}) at operators.jl:360
-    square{T<:Number}(::AbstractArray{T<:Number,N}) at operators.jl:362
+    square{T<:Number}(::AbstractArray{T<:Number,1}) at operators.jl:374
+    square{T<:Number}(::AbstractArray{T<:Number,2}) at operators.jl:375
+    square{T<:Number}(::AbstractArray{T<:Number,N}) at operators.jl:377
     square(x) at none:1
 
     julia> square([1 2 4; 5 6 7])
@@ -585,7 +588,7 @@ stride parameters.
 Sparse Matrices
 ===============
 
-`Sparse matrices <http://en.wikipedia.org/wiki/Sparse_matrix>`_ are
+`Sparse matrices <https://en.wikipedia.org/wiki/Sparse_matrix>`_ are
 matrices that contain enough zeros that storing them in a special data
 structure leads to savings in space and execution time. Sparse
 matrices may be used when operations on the sparse representation of a
@@ -597,7 +600,7 @@ Compressed Sparse Column (CSC) Storage
 
 In Julia, sparse matrices are stored in the `Compressed Sparse Column
 (CSC) format
-<http://en.wikipedia.org/wiki/Sparse_matrix#Compressed_sparse_column_.28CSC_or_CCS.29>`_.
+<https://en.wikipedia.org/wiki/Sparse_matrix#Compressed_sparse_column_.28CSC_or_CCS.29>`_.
 Julia sparse matrices have the type ``SparseMatrixCSC{Tv,Ti}``, where ``Tv``
 is the type of the nonzero values, and ``Ti`` is the integer type for
 storing column pointers and row indices.::
