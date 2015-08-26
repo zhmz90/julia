@@ -127,12 +127,12 @@ function sparse{Tv,Ti<:Integer}(I::AbstractVector{Ti},
     return SparseMatrixCSC(nrow, ncol, RpT, RiT, RxT)
 end
 
-## Transpose
+## Transpose and apply f
 
 # Based on Direct Methods for Sparse Linear Systems, T. A. Davis, SIAM, Philadelphia, Sept. 2006.
 # Section 2.5: Transpose
 # http://www.cise.ufl.edu/research/sparse/CSparse/
-function transpose!{Tv,Ti}(T::SparseMatrixCSC{Tv,Ti}, S::SparseMatrixCSC{Tv,Ti})
+function ftranspose!{Tv,Ti}(T::SparseMatrixCSC{Tv,Ti}, S::SparseMatrixCSC{Tv,Ti}, f)
     (mS, nS) = size(S)
     nnzS = nnz(S)
     colptr_S = S.colptr
@@ -157,63 +157,37 @@ function transpose!{Tv,Ti}(T::SparseMatrixCSC{Tv,Ti}, S::SparseMatrixCSC{Tv,Ti})
         q = w[ind]
         w[ind] += 1
         rowval_T[q] = j
-        nzval_T[q] = nzval_S[p]
+        nzval_T[q] = f(nzval_S[p])
     end
 
     return T
+end
+
+function ftranspose{Tv,Ti}(S::SparseMatrixCSC{Tv,Ti}, f)
+    (nT, mT) = size(S)
+    nnzS = nnz(S)
+    colptr_T = Array(Ti, nT+1)
+    rowval_T = Array(Ti, nnzS)
+    nzval_T = Array(Tv, nnzS)
+
+    T = SparseMatrixCSC(mT, nT, colptr_T, rowval_T, nzval_T)
+    return ftranspose!(T, S, f)
+end
+
+function transpose!{Tv,Ti}(T::SparseMatrixCSC{Tv,Ti}, S::SparseMatrixCSC{Tv,Ti})
+    ftranspose!(T, S, IdFun())
 end
 
 function transpose{Tv,Ti}(S::SparseMatrixCSC{Tv,Ti})
-    (nT, mT) = size(S)
-    nnzS = nnz(S)
-    colptr_T = Array(Ti, nT+1)
-    rowval_T = Array(Ti, nnzS)
-    nzval_T = Array(Tv, nnzS)
-
-    T = SparseMatrixCSC(mT, nT, colptr_T, rowval_T, nzval_T)
-    return transpose!(T, S)
+    ftranspose(S, IdFun())
 end
 
 function ctranspose!{Tv,Ti}(T::SparseMatrixCSC{Tv,Ti}, S::SparseMatrixCSC{Tv,Ti})
-    (mS, nS) = size(S)
-    nnzS = nnz(S)
-    colptr_S = S.colptr
-    rowval_S = S.rowval
-    nzval_S = S.nzval
-
-    (mT, nT) = size(T)
-    colptr_T = T.colptr
-    rowval_T = T.rowval
-    nzval_T = T.nzval
-
-    fill!(colptr_T, 0)
-    colptr_T[1] = 1
-    for i=1:nnzS
-        @inbounds colptr_T[rowval_S[i]+1] += 1
-    end
-    cumsum!(colptr_T, colptr_T)
-
-    w = copy(colptr_T)
-    @inbounds for j = 1:nS, p = colptr_S[j]:(colptr_S[j+1]-1)
-        ind = rowval_S[p]
-        q = w[ind]
-        w[ind] += 1
-        rowval_T[q] = j
-        nzval_T[q] = conj(nzval_S[p])
-    end
-
-    return T
+    ftranspose!(T, S, ConjFun())
 end
 
 function ctranspose{Tv,Ti}(S::SparseMatrixCSC{Tv,Ti})
-    (nT, mT) = size(S)
-    nnzS = nnz(S)
-    colptr_T = Array(Ti, nT+1)
-    rowval_T = Array(Ti, nnzS)
-    nzval_T = Array(Tv, nnzS)
-
-    T = SparseMatrixCSC(mT, nT, colptr_T, rowval_T, nzval_T)
-    return ctranspose!(T, S)
+    ftranspose(S, ConjFun())
 end
 
 # Compute the elimination tree of A using triu(A) returning the parent vector.
@@ -345,23 +319,26 @@ end
 function fkeep!{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, f, other)
     nzorig = nnz(A)
     nz = 1
-    for j = 1:A.n
-        p = A.colptr[j]                 # record current position
-        A.colptr[j] = nz                # set new position
-        while p < A.colptr[j+1]
-            if f(A.rowval[p], j, A.nzval[p], other)
-                A.nzval[nz] = A.nzval[p]
-                A.rowval[nz] = A.rowval[p]
+    colptr = A.colptr
+    rowval = A.rowval
+    nzval = A.nzval
+    @inbounds for j = 1:A.n
+        p = colptr[j]                 # record current position
+        colptr[j] = nz                # set new position
+        while p < colptr[j+1]
+            if f(rowval[p], j, nzval[p], other)
+                nzval[nz] = nzval[p]
+                rowval[nz] = rowval[p]
                 nz += 1
             end
             p += 1
         end
     end
-    A.colptr[A.n + 1] = nz
+    colptr[A.n + 1] = nz
     nz -= 1
     if nz < nzorig
-        resize!(A.nzval, nz)
-        resize!(A.rowval, nz)
+        resize!(nzval, nz)
+        resize!(rowval, nz)
     end
     A
 end
@@ -372,13 +349,27 @@ call(::DropTolFun, i,j,x,other) = abs(x)>other
 immutable DropZerosFun <: Func{4} end
 call(::DropZerosFun, i,j,x,other) = x!=0
 immutable TriuFun <: Func{4} end
-call(::TriuFun, i,j,x,other) = j>=i
+call(::TriuFun, i,j,x,other) = j>=i + other
 immutable TrilFun <: Func{4} end
-call(::TrilFun, i,j,x,other) = i>=j
+call(::TrilFun, i,j,x,other) = i>=j - other
 
 droptol!(A::SparseMatrixCSC, tol) = fkeep!(A, DropTolFun(), tol)
+droptol(A::SparseMatrixCSC) = droptol!(copy(A))
 dropzeros!(A::SparseMatrixCSC) = fkeep!(A, DropZerosFun(), nothing)
-triu!(A::SparseMatrixCSC) = fkeep!(A, TriuFun(), nothing)
-triu(A::SparseMatrixCSC) = triu!(copy(A))
-tril!(A::SparseMatrixCSC) = fkeep!(A, TrilFun(), nothing)
-tril(A::SparseMatrixCSC) = tril!(copy(A))
+dropzeros(A::SparseMatrixCSC) = dropzeros!(copy(A))
+
+function triu!(A::SparseMatrixCSC, k::Integer=0)
+    m,n = size(A)
+    if (k > 0 && k > n) || (k < 0 && -k > m)
+        throw(BoundsError())
+    end
+    fkeep!(A, TriuFun(), k)
+end
+
+function tril!(A::SparseMatrixCSC, k::Integer=0)
+    m,n = size(A)
+    if (k > 0 && k > n) || (k < 0 && -k > m)
+        throw(BoundsError())
+    end
+    fkeep!(A, TrilFun(), k)
+end

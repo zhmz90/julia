@@ -71,15 +71,19 @@ cld(x::Unsigned, y::Signed) = div(x,y)+(!signbit(y)&(rem(x,y)!=0))
 
 # Don't promote integers for div/rem/mod since there no danger of overflow,
 # while there is a substantial performance penalty to 64-bit promotion.
-typealias Signed64 Union{Int8,Int16,Int32,Int64}
-typealias Unsigned64 Union{UInt8,UInt16,UInt32,UInt64}
-typealias Integer64 Union{Signed64,Unsigned64}
+const Signed64Types = (Int8,Int16,Int32,Int64)
+const Unsigned64Types = (UInt8,UInt16,UInt32,UInt64)
+typealias Integer64 Union{Signed64Types...,Unsigned64Types...}
 
-div{T<:Signed64  }(x::T, y::T) = box(T,sdiv_int(unbox(T,x),unbox(T,y)))
-div{T<:Unsigned64}(x::T, y::T) = box(T,udiv_int(unbox(T,x),unbox(T,y)))
-rem{T<:Signed64  }(x::T, y::T) = box(T,srem_int(unbox(T,x),unbox(T,y)))
-rem{T<:Unsigned64}(x::T, y::T) = box(T,urem_int(unbox(T,x),unbox(T,y)))
-mod{T<:Signed64  }(x::T, y::T) = box(T,smod_int(unbox(T,x),unbox(T,y)))
+for T in Signed64Types
+    @eval div(x::$T, y::$T) = box($T,sdiv_int(unbox($T,x),unbox($T,y)))
+    @eval rem(x::$T, y::$T) = box($T,srem_int(unbox($T,x),unbox($T,y)))
+    @eval mod(x::$T, y::$T) = box($T,smod_int(unbox($T,x),unbox($T,y)))
+end
+for T in Unsigned64Types
+    @eval div(x::$T, y::$T) = box($T,udiv_int(unbox($T,x),unbox($T,y)))
+    @eval rem(x::$T, y::$T) = box($T,urem_int(unbox($T,x),unbox($T,y)))
+end
 
 mod{T<:Unsigned}(x::T, y::T) = rem(x,y)
 
@@ -158,7 +162,7 @@ end
 
 ## integer conversions ##
 
-for to in tuple(IntTypes...,Char), from in tuple(IntTypes...,Char,Bool)
+for to in tuple(IntTypes...), from in tuple(IntTypes...,Bool)
     if !(to === from)
         if to.size < from.size
             if issubtype(to, Signed)
@@ -229,7 +233,6 @@ convert(::Type{Signed}, x::UInt64 ) = convert(Int64,x)
 convert(::Type{Signed}, x::UInt128) = convert(Int128,x)
 convert(::Type{Signed}, x::Float32) = convert(Int,x)
 convert(::Type{Signed}, x::Float64) = convert(Int,x)
-convert(::Type{Signed}, x::Char)    = convert(Int,x)
 convert(::Type{Signed}, x::Bool)    = convert(Int,x)
 
 convert(::Type{Unsigned}, x::Int8   ) = convert(UInt8,x)
@@ -239,11 +242,10 @@ convert(::Type{Unsigned}, x::Int64  ) = convert(UInt64,x)
 convert(::Type{Unsigned}, x::Int128 ) = convert(UInt128,x)
 convert(::Type{Unsigned}, x::Float32) = convert(UInt,x)
 convert(::Type{Unsigned}, x::Float64) = convert(UInt,x)
-convert(::Type{Unsigned}, x::Char)    = convert(UInt,x)
 convert(::Type{Unsigned}, x::Bool)    = convert(UInt,x)
 
 convert(::Type{Integer}, x::Integer) = x
-convert(::Type{Integer}, x::Union{Real,Char}) = convert(Signed,x)
+convert(::Type{Integer}, x::Real) = convert(Signed,x)
 
 round(x::Integer) = x
 trunc(x::Integer) = x

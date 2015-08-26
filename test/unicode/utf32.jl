@@ -176,7 +176,7 @@ w = wstring(u8)
 @test u8 == WString(w.data)
 
 # 12268
-for (fun, S, T) in ((utf16, UInt16, UTF16String), (utf32, Char, UTF32String))
+for (fun, S, T) in ((utf16, UInt16, UTF16String), (utf32, UInt32, UTF32String))
     # AbstractString
     str = "abcd\0\uff\u7ff\u7fff\U7ffff"
     tst = SubString(convert(T,str),4)
@@ -187,7 +187,7 @@ for (fun, S, T) in ((utf16, UInt16, UTF16String), (utf32, Char, UTF32String))
     cmpx = (S == UInt16 ? cmp16 : cmpch)
     @test typeof(tst) == SubString{T}
     @test convert(T, tst) == str[4:end]
-    S != Char && @test convert(Vector{Char}, x) == cmp
+    S != UInt32 && @test convert(Vector{Char}, x) == cmp
     # Vector{T} / Array{T}
     @test convert(Vector{S}, x) == cmpx
     @test convert(Array{S}, x) == cmpx
@@ -208,3 +208,64 @@ end
 
 @test isvalid(UTF32String, Char['d','\uff','\u7ff','\u7fff','\U7ffff'])
 @test reverse(utf32("abcd \uff\u7ff\u7fff\U7ffff")) == utf32("\U7ffff\u7fff\u7ff\uff dcba")
+
+# Test pointer() functions
+let str = ascii("this ")
+    u8  = utf8(str)
+    u16 = utf16(str)
+    u32 = utf32(str)
+    pa  = pointer(str)
+    p8  = pointer(u8)
+    p16 = pointer(u16)
+    p32 = pointer(u32)
+    @test typeof(pa) == Ptr{UInt8}
+    @test unsafe_load(pa,1) == 0x74
+    @test typeof(p8) == Ptr{UInt8}
+    @test unsafe_load(p8,1) == 0x74
+    @test typeof(p16) == Ptr{UInt16}
+    @test unsafe_load(p16,1) == 0x0074
+    @test typeof(p32) == Ptr{UInt32}
+    @test unsafe_load(p32,1) == 't'
+    pa  = pointer(str, 2)
+    p8  = pointer(u8,  2)
+    p16 = pointer(u16, 2)
+    p32 = pointer(u32, 2)
+    @test typeof(pa) == Ptr{UInt8}
+    @test unsafe_load(pa,1) == 0x68
+    @test typeof(p8) == Ptr{UInt8}
+    @test unsafe_load(p8,1) == 0x68
+    @test typeof(p16) == Ptr{UInt16}
+    @test unsafe_load(p16,1) == 0x0068
+    @test typeof(p32) == Ptr{UInt32}
+    @test unsafe_load(p32,1) == 'h'
+    sa  = SubString{ASCIIString}(str, 3, 5)
+    s8  = SubString{UTF8String}(u8,   3, 5)
+    s16 = SubString{UTF16String}(u16, 3, 5)
+    s32 = SubString{UTF32String}(u32, 3, 5)
+    pa  = pointer(sa)
+    p8  = pointer(s8)
+    p16 = pointer(s16)
+    p32 = pointer(s32)
+    @test typeof(pa) == Ptr{UInt8}
+    @test unsafe_load(pa,1) == 0x69
+    @test typeof(p8) == Ptr{UInt8}
+    @test unsafe_load(p8,1) == 0x69
+    @test typeof(p16) == Ptr{UInt16}
+    @test unsafe_load(p16,1) == 0x0069
+    @test typeof(p32) == Ptr{UInt32}
+    @test unsafe_load(p32,1) == 'i'
+    pa  = pointer(sa, 2)
+    p8  = pointer(s8,  2)
+    p16 = pointer(s16, 2)
+    p32 = pointer(s32, 2)
+    @test typeof(pa) == Ptr{UInt8}
+    @test unsafe_load(pa,1) == 0x73
+    @test typeof(p8) == Ptr{UInt8}
+    @test unsafe_load(p8,1) == 0x73
+    @test typeof(p16) == Ptr{UInt16}
+    @test unsafe_load(p16,1) == 0x0073
+    @test typeof(p32) == Ptr{UInt32}
+    @test unsafe_load(p32,1) == 's'
+end
+
+@test isvalid(Char['f','o','o','b','a','r'])

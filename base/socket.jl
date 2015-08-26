@@ -343,7 +343,12 @@ _jl_sockaddr_set_port(ptr::Ptr{Void},port::UInt16) =
     ccall(:jl_sockaddr_set_port,Void,(Ptr{Void},UInt16),ptr,port)
 
 accept(server::TCPServer) = accept(server, TCPSocket())
-accept(server::PipeServer) = accept(server, Pipe())
+
+# Libuv will internally reset the readable and writable flags on
+# this pipe after it has successfully accepted the connection, to
+# remember that before that this is an invalid pipe
+accept(server::PipeServer) = accept(server, init_pipe!(PipeEndpoint();
+    readable=false, writable=false, julia_only=true))
 
 ##
 
@@ -388,7 +393,7 @@ function UDPSocket()
     this
 end
 
-function uvfinalize(uv::Union{TTY,Pipe,PipeServer,TCPServer,TCPSocket,UDPSocket})
+function uvfinalize(uv::Union{TTY,PipeEndpoint,PipeServer,TCPServer,TCPSocket,UDPSocket})
     if (uv.status != StatusUninit && uv.status != StatusInit)
         close(uv)
     end
@@ -510,10 +515,10 @@ function uv_recvcb(handle::Ptr{Void}, nread::Cssize_t, buf::Ptr{Void}, addr::Ptr
     addrout = if (addr == C_NULL)
                   IPv4(0)
               elseif ccall(:jl_sockaddr_in_is_ip4, Cint, (Ptr{Void},), addr) == 1
-                  IPv4(ntoh(ccall(:jl_sockaddr_host4, Uint32, (Ptr{Void},), addr)))
+                  IPv4(ntoh(ccall(:jl_sockaddr_host4, UInt32, (Ptr{Void},), addr)))
               else
                   tmp = [UInt128(0)]
-                  ccall(:jl_sockaddr_host6, Uint32, (Ptr{Void}, Ptr{Uint8}), addr, pointer(tmp))
+                  ccall(:jl_sockaddr_host6, UInt32, (Ptr{Void}, Ptr{UInt8}), addr, pointer(tmp))
                   IPv6(ntoh(tmp[1]))
               end
     buf = pointer_to_array(convert(Ptr{UInt8},buf_addr),Int(buf_size),true)

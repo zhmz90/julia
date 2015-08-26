@@ -1,9 +1,9 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
 # Quickly copy and set trailing \0
-@inline function fast_utf_copy{S <: Union{UTF16String, UTF32String}, T <: Union{UInt16, Char}}(
-			      ::Type{S}, ::Type{T}, len, dat, flag::Bool=false)
-     S(setindex!(copy!(Vector{T}(len+1), 1, dat, 1, flag ? len : len+1), 0, len+1))
+@inline function fast_utf_copy{S <: Union{UTF16String, UTF32String}, T <: Union{UInt16, UInt32}}(
+                              ::Type{S}, ::Type{T}, len, dat, flag::Bool=false)
+    S(setindex!(copy!(Vector{T}(len+1), 1, dat, 1, flag ? len : len+1), 0, len+1))
 end
 
 # Get rest of character ch from 3-byte UTF-8 sequence in dat
@@ -266,8 +266,6 @@ function convert(T::Type{UTF16String}, bytes::AbstractArray{UInt8})
     !isvalid(UTF16String, d) && throw(UnicodeError(UTF_ERR_INVALID_16,0,0))
     UTF16String(d)
 end
-
-convert(::Type{UTF16String}, str::UTF16String)    = str
 
 utf16(x) = convert(UTF16String, x)
 utf16(p::Ptr{UInt16}, len::Integer) = utf16(pointer_to_array(p, len))

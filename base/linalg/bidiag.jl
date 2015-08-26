@@ -42,15 +42,28 @@ end
 
 #Converting from Bidiagonal to dense Matrix
 full{T}(M::Bidiagonal{T}) = convert(Matrix{T}, M)
-convert{T}(::Type{Matrix{T}}, A::Bidiagonal{T})=diagm(A.dv) + diagm(A.ev, A.isupper?1:-1)
+function convert{T}(::Type{Matrix{T}}, A::Bidiagonal)
+    n = size(A, 1)
+    B = zeros(T, n, n)
+    for i = 1:n - 1
+        B[i,i] = A.dv[i]
+        if A.isupper
+            B[i, i + 1] = A.ev[i]
+        else
+            B[i + 1, i] = A.ev[i]
+        end
+    end
+    B[n,n] = A.dv[n]
+    return B
+end
 convert{T}(::Type{Matrix}, A::Bidiagonal{T}) = convert(Matrix{T}, A)
 promote_rule{T,S}(::Type{Matrix{T}}, ::Type{Bidiagonal{S}})=Matrix{promote_type(T,S)}
 
 #Converting from Bidiagonal to Tridiagonal
 Tridiagonal{T}(M::Bidiagonal{T}) = convert(Tridiagonal{T}, M)
-function convert{T}(::Type{Tridiagonal{T}}, A::Bidiagonal{T})
+function convert{T}(::Type{Tridiagonal{T}}, A::Bidiagonal)
     z = zeros(T, size(A)[1]-1)
-    A.isupper ? Tridiagonal(z, A.dv, A.ev) : Tridiagonal(A.ev, A.dv, z)
+    A.isupper ? Tridiagonal(z, convert(Vector{T},A.dv), convert(Vector{T},A.ev)) : Tridiagonal(convert(Vector{T},A.ev), convert(Vector{T},A.dv), z)
 end
 promote_rule{T,S}(::Type{Tridiagonal{T}}, ::Type{Bidiagonal{S}})=Tridiagonal{promote_type(T,S)}
 
@@ -70,6 +83,7 @@ function svdfact!(M::Bidiagonal, thin::Bool=true)
     d, e, U, Vt, Q, iQ = LAPACK.bdsdc!(M.isupper ? 'U' : 'L', 'I', M.dv, M.ev)
     SVD(U, d, Vt)
 end
+svdfact(M::Bidiagonal, thin::Bool=true) = svdfact!(copy(M),thin)
 
 ####################
 # Generic routines #
@@ -79,7 +93,7 @@ function show(io::IO, M::Bidiagonal)
     println(io, summary(M), ":")
     print(io, " diag:")
     print_matrix(io, (M.dv)')
-    print(io, M.isupper?"\n super:":"\n  sub:")
+    print(io, M.isupper?"\n super:":"\n sub:")
     print_matrix(io, (M.ev)')
 end
 
@@ -206,7 +220,6 @@ function A_ldiv_B!(A::Union{Bidiagonal, AbstractTriangular}, B::AbstractMatrix)
     end
     B
 end
-A_ldiv_B(A::Union{Bidiagonal, AbstractTriangular}, B::AbstractMatrix) = A_ldiv_B!(A,copy(B))
 
 for func in (:Ac_ldiv_B!, :At_ldiv_B!)
     @eval function ($func)(A::Union{Bidiagonal, AbstractTriangular}, B::AbstractMatrix)

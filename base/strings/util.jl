@@ -70,7 +70,7 @@ function lstrip(s::AbstractString, chars::Chars=_default_delims)
         end
         i = j
     end
-    ""
+    s[end+1:end]
 end
 
 function rstrip(s::AbstractString, chars::Chars=_default_delims)
@@ -83,13 +83,13 @@ function rstrip(s::AbstractString, chars::Chars=_default_delims)
         end
         i = j
     end
-    ""
+    s[1:0]
 end
 
 strip(s::AbstractString) = lstrip(rstrip(s))
 strip(s::AbstractString, chars::Chars) = lstrip(rstrip(s, chars), chars)
 
-## String padding functions ##
+## string padding functions ##
 
 function lpad(s::AbstractString, n::Integer, p::AbstractString=" ")
     m = n - strwidth(s)
@@ -233,5 +233,6 @@ function hex2bytes(s::ASCIIString)
     end
     return arr
 end
+hex2bytes(s::AbstractString) = hex2bytes(ascii(s))
 
 bytes2hex{T<:UInt8}(arr::Vector{T}) = join([hex(i,2) for i in arr])

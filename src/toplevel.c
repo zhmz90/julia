@@ -138,9 +138,9 @@ jl_value_t *jl_eval_module_expr(jl_expr_t *ex)
         // to pick up new types from Base
         jl_errorexception_type = NULL;
         jl_argumenterror_type = NULL;
-        jl_typeerror_type = NULL;
         jl_methoderror_type = NULL;
         jl_loaderror_type = NULL;
+        jl_initerror_type = NULL;
         jl_current_task->tls = jl_nothing; // may contain an entry for :SOURCE_FILE that is not valid in the new base
     }
     // export all modules from Main
@@ -205,12 +205,18 @@ jl_value_t *jl_eval_module_expr(jl_expr_t *ex)
     arraylist_push(&module_stack, newm);
 
     if (outermost == NULL || jl_current_module == jl_main_module) {
-        size_t i, l=module_stack.len;
-        for(i = stackidx; i < l; i++) {
-            jl_module_load_time_initialize((jl_module_t*)module_stack.items[i]);
+        JL_TRY {
+            size_t i, l=module_stack.len;
+            for(i = stackidx; i < l; i++) {
+                jl_module_load_time_initialize((jl_module_t*)module_stack.items[i]);
+            }
+            assert(module_stack.len == l);
+            module_stack.len = stackidx;
         }
-        assert(module_stack.len == l);
-        module_stack.len = stackidx;
+        JL_CATCH {
+            module_stack.len = stackidx;
+            jl_rethrow();
+        }
     }
 
     return (jl_value_t*)newm;
@@ -501,13 +507,9 @@ jl_value_t *jl_toplevel_eval_flex(jl_value_t *e, int fast)
         thk = (jl_lambda_info_t*)jl_exprarg(ex,0);
         assert(jl_is_lambda_info(thk));
         assert(jl_is_expr(thk->ast));
-        ewc = jl_eval_with_compiler_p((jl_expr_t*)thk->ast, jl_lam_body((jl_expr_t*)thk->ast), fast, jl_current_module);
-        if (!ewc) {
-            if (jl_lam_vars_captured((jl_expr_t*)thk->ast)) {
-                // interpreter doesn't handle closure environment
-                ewc = 1;
-            }
-        }
+        ewc = jl_eval_with_compiler_p((jl_expr_t*)thk->ast, jl_lam_body((jl_expr_t*)thk->ast), fast, jl_current_module) ||
+            // interpreter doesn't handle closure environment
+            jl_lam_vars_captured((jl_expr_t*)thk->ast);
     }
     else {
         if (head && jl_eval_with_compiler_p(NULL, (jl_expr_t*)ex, fast, jl_current_module)) {
@@ -532,7 +534,7 @@ jl_value_t *jl_toplevel_eval_flex(jl_value_t *e, int fast)
     if (ewc) {
         thunk = (jl_value_t*)jl_new_closure(NULL, (jl_value_t*)jl_emptysvec, thk);
         if (!jl_in_inference) {
-            jl_type_infer(thk, jl_tuple_type, thk);
+            jl_type_infer(thk, (jl_tupletype_t*)jl_typeof(jl_emptytuple), thk);
         }
         result = jl_apply((jl_function_t*)thunk, NULL, 0);
     }
@@ -585,8 +587,13 @@ jl_value_t *jl_parse_eval_all(const char *fname, size_t len)
             jl_rethrow();
         }
         else {
-            jl_rethrow_other(jl_new_struct(jl_loaderror_type, fn, ln,
-                                           jl_exception_in_transit));
+            if(jl_typeis(jl_exception_in_transit, jl_initerror_type)) {
+                jl_rethrow();
+            }
+            else {
+                jl_rethrow_other(jl_new_struct(jl_loaderror_type, fn, ln,
+                                               jl_exception_in_transit));
+            }
         }
     }
     jl_stop_parsing();

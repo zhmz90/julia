@@ -187,7 +187,8 @@ catdoc(xs...) = vcat(xs...)
 # Type Documentation
 
 isdoc(x) = isexpr(x, :string, AbstractString) ||
-    (isexpr(x, :macrocall) && endswith(string(x.args[1]), "_str"))
+    (isexpr(x, :macrocall) && x.args[1] == symbol("@doc_str")) ||
+    (isexpr(x, :call) && x.args[1] == Expr(:., Base.Markdown, QuoteNode(:doc_str)))
 
 dict_expr(d) = :(Dict($([:($(Expr(:quote, f)) => $d) for (f, d) in d]...)))
 
@@ -317,7 +318,7 @@ end
 
 function funcdoc(meta, def, def′)
     f = esc(namify(def′))
-    m = :(methods($f, $(esc(signature(def′))))[1])
+    m = :(methods($f, $(esc(signature(def′))))[end])
     quote
         @init
         $(esc(def))
@@ -359,7 +360,7 @@ end
 
 multidoc(meta, objs) = quote $([:(@doc $(esc(meta)) $(esc(obj))) for obj in objs]...) end
 
-fexpr(ex) = isexpr(ex, :function, :(=)) && isexpr(ex.args[1], :call)
+fexpr(ex) = isexpr(ex, :function, :stagedfunction, :(=)) && isexpr(ex.args[1], :call)
 
 function docm(meta, def, define = true)
     def′ = unblock(def)

@@ -98,7 +98,6 @@ DLLEXPORT void jl_uv_req_set_data(uv_req_t *req, void *data) { req->data = data;
 DLLEXPORT void *jl_uv_handle_data(uv_handle_t *handle) { return handle->data; }
 DLLEXPORT void *jl_uv_write_handle(uv_write_t *req) { return req->handle; }
 
-
 DLLEXPORT int jl_run_once(uv_loop_t *loop)
 {
     if (loop) {
@@ -257,7 +256,7 @@ DLLEXPORT int jl_fs_unlink(char *path)
     return ret;
 }
 
-DLLEXPORT int jl_fs_rename(char *src_path, char *dst_path)
+DLLEXPORT int jl_fs_rename(const char *src_path, const char *dst_path)
 {
     uv_fs_t req;
     JL_SIGATOMIC_BEGIN();
@@ -675,7 +674,6 @@ DLLEXPORT int jl_tcp_quickack(uv_tcp_t *handle, int on)
 
 #endif
 
-
 DLLEXPORT int jl_tcp_reuseport(uv_tcp_t *handle)
 {
 #if defined(SO_REUSEPORT)
@@ -796,6 +794,7 @@ DLLEXPORT HANDLE jl_uv_handle(uv_stream_t *handle)
     }
 }
 #endif
+
 #ifdef __cplusplus
 }
 #endif

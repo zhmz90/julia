@@ -1499,16 +1499,16 @@ static void all_p2c(jl_value_t *ast, jl_svec_t *tvars)
 
 static void precompile_unspecialized(jl_function_t *func, jl_tupletype_t *sig, jl_svec_t *tvars)
 {
+    assert(sig);
     func->linfo->specTypes = sig;
-    if (sig)
-        jl_gc_wb(func->linfo, sig);
+    jl_gc_wb(func->linfo, sig);
     if (tvars != jl_emptysvec) {
         // add static parameter names to end of closure env; compile
         // assuming they are there. method cache will fill them in when
         // it constructs closures for new "specializations".
         all_p2c((jl_value_t*)func->linfo, tvars);
     }
-    jl_trampoline_compile_function(func, 1, sig ? sig : jl_anytuple_type);
+    jl_trampoline_compile_function(func, 1, sig);
 }
 
 void jl_compile_all_defs(jl_function_t *gf)
@@ -1522,9 +1522,12 @@ void jl_compile_all_defs(jl_function_t *gf)
     JL_GC_PUSH1(&func);
     while (m != (void*)jl_nothing) {
         if (jl_is_leaf_type((jl_value_t*)m->sig)) {
-            jl_get_specialization(gf, m->sig);
+            if (jl_get_specialization(gf, m->sig)) {
+                m = m->next;
+                continue;
+            }
         }
-        else if (m->func->linfo->unspecialized == NULL) {
+        if (m->func->linfo->unspecialized == NULL) {
             func = jl_instantiate_method(m->func, jl_emptysvec);
             if (func->env != (jl_value_t*)jl_emptysvec)
                 func->env = NULL;
@@ -1573,7 +1576,7 @@ static void _compile_all(jl_module_t *m, htable_t *h)
                     li->unspecialized = func;
                     jl_gc_wb(li, func);
                 }
-                precompile_unspecialized(func, NULL, jl_emptysvec);
+                precompile_unspecialized(func, li->specTypes ? li->specTypes : jl_anytuple_type, jl_emptysvec);
             }
         }
     }
@@ -1608,6 +1611,7 @@ static void show_call(jl_value_t *F, jl_value_t **args, uint32_t nargs)
 
 JL_CALLABLE(jl_apply_generic)
 {
+    assert(jl_is_gf(F));
     jl_methtable_t *mt = jl_gf_mtable(F);
 #ifdef JL_GF_PROFILE
     mt->ncalls++;

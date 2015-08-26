@@ -75,6 +75,15 @@
                 ((comparison) (apply string (map deparse (cdr e))))
                 ((in) (string (deparse (cadr e)) " in " (deparse (caddr e))))
                 ((jlgensym) (string "GenSym(" (cdr e) ")"))
+		((line) (if (length= e 2)
+			    (string "# line " (cadr e))
+			    (string "# " (caddr e) ", line " (cadr e))))
+		((block)
+		 (string "begin\n"
+			 (string.join (map (lambda (ex) (string "    " (deparse ex)))
+					   (cdr e))
+				      "\n")
+			 "\nend"))
                 (else
                  (string e))))))
 
@@ -656,11 +665,18 @@
         ;; return primary function
         ,name))))
 
+(define (take-while f xs)
+  (cond ((null? xs) '())
+        ((f (car xs)) (cons (car xs) (take-while f (cdr xs))))
+        (else '())))
+
 (define (optional-positional-defs name sparams req opt dfl body isstaged overall-argl . kw)
-  (let ((lno  (if (and (pair? body) (pair? (cdr body))
-                       (pair? (cadr body)) (eq? (caadr body) 'line))
-                  (list (cadr body))
-                  '())))
+  ;; prologue includes line number node and eventual meta nodes
+  (let ((prologue (if (pair? body)
+                       (take-while (lambda (e)
+                                     (and (pair? e) (or (eq? (car e) 'line) (eq? (car e) 'meta))))
+                                   (cdr body))
+                       '())))
   `(block
     ,@(map (lambda (n)
              (let* ((passed (append req (list-head opt n)))
@@ -686,11 +702,11 @@
                               vals)
                          ;; then add only one next argument
                          `(block
-                           ,@lno
+                           ,@prologue
                            (call ,name ,@kw ,@(map arg-name passed) ,(car vals)))
                          ;; otherwise add all
                          `(block
-                           ,@lno
+                           ,@prologue
                            (call ,name ,@kw ,@(map arg-name passed) ,@vals)))))
                (method-def-expr name sp (append kw passed) body #f)))
            (iota (length opt)))
@@ -1207,16 +1223,18 @@
                                    (and catchb
                                         (not (block-returns? catchb))))
                                (gensy)))
-                     (retval (gensy))
+                     (retval (if hasret (gensy) #f))
                      (bb  (gensy))
+		     (finally-exception (gensy))
                      (val (gensy))) ;; this is jlgensym, but llvm has trouble determining that it dominates all uses
                  (let ((tryb   (replace-return tryb bb ret retval))
                        (catchb (replace-return catchb bb ret retval)))
                    (expand-binding-forms
                     `(scope-block
                       (block
-                       (local ,retval)
+                       ,@(if hasret `((local ,retval)) '())
                        (local ,val)
+		       (local ,finally-exception)
                        (= ,err false)
                        ,@(if ret `((= ,ret false)) '())
                        (break-block
@@ -1227,8 +1245,9 @@
                                      tryb))
                              #f
                              (= ,err true)))
+		       (= ,finally-exception (the_exception))
                        ,finalb
-                       (if ,err (ccall 'jl_rethrow Void (tuple)))
+                       (if ,err (ccall 'jl_rethrow_other Void (tuple Any) ,finally-exception))
                        ,(if hasret
                             (if ret
                                 `(if ,ret (return ,retval) ,val)
@@ -3408,7 +3427,7 @@ So far only the second case can actually occur.
          (case (car e)
            ((jlgensym) e)
            ((escape) (cadr e))
-           ((using import importall export) (map unescape e))
+           ((using import importall export meta) (map unescape e))
            ((macrocall)
         (if (or (eq? (cadr e) '@label) (eq? (cadr e) '@goto)) e
             `(macrocall ,.(map (lambda (x)

@@ -44,7 +44,7 @@ New language features
 
   * The syntax `new{parameters...}(...)` can be used in constructors to specify parameters for
     the type to be constructed ([#8135]).
-  * The `++` operator is now parsed, out of discussions about string concatenation, but no default meaning has been defined yet. ([#11030], [#11686])
+  * The `++` operator is now parsed, out of discussions about string concatenation, but no default meaning has been defined yet ([#11030], [#11686]).
 
   * Support for inter-task communication using `Channels` ([#12264]).
     See http://docs.julialang.org/en/latest/manual/parallel-computing/#channels for details.
@@ -57,11 +57,14 @@ New language features
 Language changes
 ----------------
 
+  * Module `__init__` methods no longer swallow thrown exceptions; they now
+    throw an `InitError` wrapping the thrown exception ([#12576]).
+
   * Tuple types are now written as `Tuple{A, B}` instead of as `(A, B)`.
     Tuples of bits types are inlined into structs and arrays, like other
     immutable types.
     `...` now does splatting inside parentheses, instead of constructing a
-    vararg tuple type. ([#10380])
+    vararg tuple type ([#10380]).
 
   * Significant improvements to `ccall` and `cfunction`
 
@@ -124,7 +127,7 @@ Language changes
     dicts are synchronized. As part of this change, `=>` is parsed as a normal
     operator, and `Base` defines it to construct `Pair` objects ([#6739]).
 
-  * `Char` is no longer a subtype of `Integer`. ([#8816])
+  * `Char` is no longer a subtype of `Integer` ([#8816]).
     Char now supports a more limited set of operations with `Integer` types:
 
       * comparison / equality
@@ -190,7 +193,7 @@ Compiler improvements
 Library improvements
 --------------------
 
-  * Build with USE_GPL_LIBS=0 to exclude all GPL libraries and code. ([#10870])
+  * Build with USE_GPL_LIBS=0 to exclude all GPL libraries and code ([#10870]).
 
   * Linear algebra
 
@@ -216,7 +219,7 @@ Library improvements
 
     * Large speedup in sparse `\` and splitting of Cholesky and LDLᵀ factorizations into `cholfact` and `ldltfact` ([#10117]).
 
-    * Add sparse least squares to `\` by adding `qrfact` for sparse matrices based on the SPQR library. ([#10180])
+    * Add sparse least squares to `\` by adding `qrfact` for sparse matrices based on the SPQR library ([#10180]).
 
     * Split `Triangular` type into `UpperTriangular`, `LowerTriangular`, `UnitUpperTriagular` and `UnitLowerTriangular` ([#9779])
 
@@ -252,11 +255,11 @@ Library improvements
     * `charwidth(c)` and `strwidth(s)` now return up-to-date cross-platform
       results (via utf8proc) ([#10659]): Julia now likes pizza ([#3721]), but some terminals still don't.
 
-    * `is_valid_char(c)` now correctly handles Unicode "non-characters", which are valid Unicode codepoints. ([#11171])
+    * `is_valid_char(c)` now correctly handles Unicode "non-characters", which are valid Unicode codepoints ([#11171]).
 
   * Array and AbstractArray improvements
 
-    * New multidimensional iterators and index types for efficient iteration over `AbstractArray`s. Array iteration should generally be written as `for i in eachindex(A) ... end` rather than `for i = 1:length(A) ... end`.  ([#8432])
+    * New multidimensional iterators and index types for efficient iteration over `AbstractArray`s. Array iteration should generally be written as `for i in eachindex(A) ... end` rather than `for i = 1:length(A) ... end` ([#8432]).
 
     * New implementation of SubArrays with substantial performance and functionality improvements ([#8501]).
 
@@ -339,7 +342,7 @@ Library improvements
     * Streamlined random number generation APIs [#8246].
     The default `rand` no longer uses global state in the underlying C library,
     dSFMT, making it closer to being thread-safe ([#8399], [#8832]).
-    All APIs can now take an `AbstractRNG` argument ([#8854], [#9065]).
+    All APIs can now take an `AbstractRNG` argument ([#8854], [#9065]). The seed argument to `srand` is now optional ([#8320], [#8854]).
     The APIs accepting a range argument are extended to accept an arbitrary
     `AbstractArray` ([#9049]).
     Passing a range of `BigInt` to `rand` or `rand!` is now supported ([#9122]).
@@ -356,6 +359,14 @@ Library improvements
     * The `cp` function now accepts keyword arguments `remove_destination` and `follow_symlinks` ([#10888]).
 
     * The `mv` function now accepts keyword argument `remove_destination` ([#11145]).
+
+  * Pipe, Process, and Cmd simplications ([#12739])
+
+    * `Process` now inherits from `IO`
+
+    * Create an uninitialized unnamed pipe by calling `Pipe()`. Initialize it by calling `link_pipe` or by passing it to `spawn`.
+
+    * the `Cmd` objects are now immutable
 
   * Other improvements
 
@@ -396,6 +407,9 @@ Library improvements
 
     * New garbage collector tracked memory allocator functions: `jl_malloc`, `jl_calloc`,
     `jl_realloc`, and `jl_free` with libc API ([[#12034]]).
+
+    * `mktempdir` and `mktemp` now have variants that take a function as its
+      first argument for automated clean-up ([[#9017]]).
 
 Deprecated or removed
 ---------------------
@@ -457,7 +471,7 @@ Deprecated or removed
   * `null` is renamed to `nullspace` ([#9714]).
 
   * The operators `|>`, `.>`, `>>`, and `.>>` as used for process I/O redirection
-    are replaced with the `pipe` function ([#5349]).
+    are replaced with the ~~`pipe`~~ `pipeline` function ([#5349], [#12739]).
 
   * `flipud(A)` and `fliplr(A)` have been deprecated in favor of `flipdim(A, 1)` and
     `flipdim(A, 2)`, respectively ([#10446]).
@@ -474,7 +488,7 @@ Deprecated or removed
   * The functions `parseint`, `parsefloat`, `float32_isvalid`,
   `float64_isvalid`, and the string-argument `BigInt` and `BigFloat` have
   been replaced by `parse` and `tryparse` with a type argument. The string
-  macro `big"xx"` can be used to construct `BigInt` and `BigFloat` literals.
+  macro `big"xx"` can be used to construct `BigInt` and `BigFloat` literals
   ([#3631], [#5704], [#9487], [#10543], [#10955]).
 
   * the `--int-literals` compiler option is no longer accepted ([#9597]).
@@ -568,7 +582,7 @@ New language features
 
   * `break` inside a `for` loop with multiple ranges now exits the entire loop nest ([#5154])
 
-  * Local goto statements using the `@goto` and `@label` macros. ([#101])
+  * Local goto statements using the `@goto` and `@label` macros ([#101]).
 
 REPL improvements
 -----------------
@@ -751,7 +765,7 @@ Library improvements
 
       * `sparse(A) \ B` now supports a matrix `B` of right-hand sides ([#5196]).
 
-      * `eigs(A, sigma)` now uses shift-and-invert for nonzero shifts `sigma` and inverse iteration for `which="SM"`. If `sigma==nothing` (the new default), computes ordinary (forward) iterations. ([#5776])
+      * `eigs(A, sigma)` now uses shift-and-invert for nonzero shifts `sigma` and inverse iteration for `which="SM"`. If `sigma==nothing` (the new default), computes ordinary (forward) iterations ([#5776]).
 
       * `sprand` is faster, and whether any entry is nonzero is now determined independently with the specified probability ([#6726]).
 
@@ -759,7 +773,7 @@ Library improvements
 
       * Interconversions between the special matrix types `Diagonal`, `Bidiagonal`,
         `SymTridiagonal`, `Triangular`, and `Triangular`, and `Matrix` are now allowed
-        for matrices which are representable in both source and destination types. ([5e3f074b])
+        for matrices which are representable in both source and destination types ([5e3f074b]).
 
       * Allow for addition and subtraction over mixed matrix types, automatically promoting
         the result to the denser matrix type ([a448e080], [#5927])
@@ -807,7 +821,7 @@ Library improvements
     single iterable argument giving the elements of the collection ([#4996], [#4871])
 
   * Ranges and arrays with the same elements are now unequal. This allows hashing
-    and comparing ranges to be faster. ([#5778])
+    and comparing ranges to be faster ([#5778]).
 
   * Broadcasting now works on arbitrary `AbstractArrays` ([#5387])
 
@@ -839,28 +853,28 @@ Library improvements
 
   * New macro `@evalpoly` for efficient inline evaluation of polynomials ([#7146]).
 
-  * The signal filtering function `filt` now accepts an optional initial filter state vector. A new in-place function `filt!` is also exported. ([#7513])
+  * The signal filtering function `filt` now accepts an optional initial filter state vector. A new in-place function `filt!` is also exported ([#7513]).
 
-  * Significantly faster `cumsum` and `cumprod`. ([#7359])
+  * Significantly faster `cumsum` and `cumprod` ([#7359]).
 
-  * Implement `findmin` and `findmax` over specified array dimensions. ([#6716])
+  * Implement `findmin` and `findmax` over specified array dimensions ([#6716]).
 
-  * Support memory-mapping of files with offsets on Windows. ([#7242])
+  * Support memory-mapping of files with offsets on Windows ([#7242]).
 
-  * Catch writes to protect memory, such as when trying to modify a mmapped file opened in read-only mode. ([#3434])
+  * Catch writes to protect memory, such as when trying to modify a mmapped file opened in read-only mode ([#3434]).
 
 Environment improvements
 ------------------------
 
-  * New `--code-coverage` and `--track-allocation` startup features allow one to measure the number of executions or the amount of memory allocated, respectively, at each line of code. ([#5423],[#7464])
+  * New `--code-coverage` and `--track-allocation` startup features allow one to measure the number of executions or the amount of memory allocated, respectively, at each line of code ([#5423],[#7464]).
 
-  * `Profile.init` now accepts keyword arguments, and returns the current settings when no arguments are supplied. ([#7365])
+  * `Profile.init` now accepts keyword arguments, and returns the current settings when no arguments are supplied ([#7365]).
 
 Build improvements
 ------------------
 
   * Dependencies are now verified against stored MD5/SHA512 hashes, to ensure
-    that the correct file has been downloaded and was not modified. ([#6773])
+    that the correct file has been downloaded and was not modified ([#6773]).
 
 
 Deprecated or removed
@@ -872,31 +886,31 @@ Deprecated or removed
 
   * `Sys.shlib_ext` has been renamed to `Sys.dlext`
 
-  * `dense` is deprecated in favor of `full` ([#4759])
+  * `dense` is deprecated in favor of `full` ([#4759]).
 
-  * The `Stat` type is renamed `StatStruct` ([#4670])
+  * The `Stat` type is renamed `StatStruct` ([#4670]).
 
   * `set_rounding`, `get_rounding` and `with_rounding` now take an additional
     argument specifying the floating point type to which they apply. The old
-    behaviour and `[get/set/with]_bigfloat_rounding` functions are deprecated ([#5007])
+    behaviour and `[get/set/with]_bigfloat_rounding` functions are deprecated ([#5007]).
 
   * `cholpfact` and `qrpfact` are deprecated in favor of keyword arguments in
-    `cholfact(..., pivot=true)` and `qrfact(..., pivot=true)` ([#5330])
+    `cholfact(..., pivot=true)` and `qrfact(..., pivot=true)` ([#5330]).
 
-  * `symmetrize!` is deprecated in favor of `Base.LinAlg.copytri!` ([#5427])
+  * `symmetrize!` is deprecated in favor of `Base.LinAlg.copytri!` ([#5427]).
 
-  * `myindexes` has been renamed to `localindexes` ([#5475])
+  * `myindexes` has been renamed to `localindexes` ([#5475]).
 
-  * `factorize!` is deprecated in favor of `factorize`. ([#5526])
+  * `factorize!` is deprecated in favor of `factorize` ([#5526]).
 
   * `nnz` counts the number of structural nonzeros in a sparse
-    matrix. Use `countnz` for the actual number of nonzeros. ([#6769])
+    matrix. Use `countnz` for the actual number of nonzeros ([#6769]).
 
-  * `setfield` is renamed `setfield!` ([#5748])
+  * `setfield` is renamed `setfield!` ([#5748]).
 
-  * `put` and `take` are renamed `put!` and `take!` ([#5511])
+  * `put` and `take` are renamed `put!` and `take!` ([#5511]).
 
-  * `put!` now returns its first argument, the remote reference ([#5819])
+  * `put!` now returns its first argument, the remote reference ([#5819]).
 
   * `read` methods that modify a passed array are now called `read!` ([#5970])
 
@@ -1127,14 +1141,14 @@ Library improvements
 
   * Implementation of reduction functions (including `reduce`, `mapreduce`, `sum`, `prod`,
     `maximum`, `minimum`, `all`, and `any`) are refactored, with improved type stability,
-    efficiency, and consistency. ([#6116], [#7035], [#7061], [#7106])
+    efficiency, and consistency ([#6116], [#7035], [#7061], [#7106]).
 
 Deprecated or removed
 ---------------------
 
   * Methods of `min` and `max` that do reductions were renamed to
     `minimum` and `maximum`. `min(x)` is now `minimum(x)`, and
-    `min(x,(),dim)` is now `minimum(x,dim)`. ([#4235])
+    `min(x,(),dim)` is now `minimum(x,dim)` ([#4235]).
 
   * `ComplexPair` was renamed to `Complex` and made `immutable`,
     and `Complex128` and so on are now aliases to the new `Complex` type.
@@ -1463,6 +1477,7 @@ Too numerous to mention.
 [#8246]: https://github.com/JuliaLang/julia/issues/8246
 [#8283]: https://github.com/JuliaLang/julia/issues/8283
 [#8297]: https://github.com/JuliaLang/julia/issues/8297
+[#8320]: https://github.com/JuliaLang/julia/issues/8320
 [#8399]: https://github.com/JuliaLang/julia/issues/8399
 [#8423]: https://github.com/JuliaLang/julia/issues/8423
 [#8432]: https://github.com/JuliaLang/julia/issues/8432
@@ -1494,6 +1509,7 @@ Too numerous to mention.
 [#8905]: https://github.com/JuliaLang/julia/issues/8905
 [#8941]: https://github.com/JuliaLang/julia/issues/8941
 [#8958]: https://github.com/JuliaLang/julia/issues/8958
+[#9017]: https://github.com/JuliaLang/julia/issues/9017
 [#9049]: https://github.com/JuliaLang/julia/issues/9049
 [#9065]: https://github.com/JuliaLang/julia/issues/9065
 [#9083]: https://github.com/JuliaLang/julia/issues/9083
@@ -1586,3 +1602,5 @@ Too numerous to mention.
 [#12458]: https://github.com/JuliaLang/julia/issues/12458
 [#12472]: https://github.com/JuliaLang/julia/issues/12472
 [#12491]: https://github.com/JuliaLang/julia/issues/12491
+[#12576]: https://github.com/JuliaLang/julia/issues/12576
+[#12739]: https://github.com/JuliaLang/julia/issues/12739

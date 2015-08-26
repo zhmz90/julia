@@ -32,6 +32,9 @@ for elty in (Float32, Float64, Complex64, Complex128, Int)
     end
     ε = eps(abs2(float(one(elty))))
     T = Tridiagonal(dl, d, du)
+    Ts = SymTridiagonal(d, dl)
+    @test_throws ArgumentError size(Ts,0)
+    @test size(Ts,3) == 1
     @test size(T, 1) == n
     @test size(T) == (n, n)
     F = diagm(d)
@@ -48,8 +51,10 @@ for elty in (Float32, Float64, Complex64, Complex128, Int)
 
     # test interconversion of Tridiagonal and SymTridiagonal
     @test Tridiagonal(dl, d, dl) == SymTridiagonal(d, dl)
+    @test SymTridiagonal(d, dl) == Tridiagonal(dl, d, dl)
     @test Tridiagonal(dl, d, du) + Tridiagonal(du, d, dl) == SymTridiagonal(2d, dl+du)
-    @test SymTridiagonal(d, dl) + Tridiagonal(du, d, du) == SymTridiagonal(2d, dl+du)
+    @test SymTridiagonal(d, dl) + Tridiagonal(dl, d, du) == Tridiagonal(dl + dl, d+d, dl+du)
+    @test convert(SymTridiagonal,Tridiagonal(Ts)) == Ts
 
     # tridiagonal linear algebra
     @test_approx_eq T*v F*v
@@ -72,10 +77,15 @@ for elty in (Float32, Float64, Complex64, Complex128, Int)
         Ts = SymTridiagonal(d, dl)
         Fs = full(Ts)
         invFsv = Fs\v
-        Tldlt = ldltfact(Ts)
+        Tldlt = factorize(Ts)
         x = Tldlt\v
         @test_approx_eq x invFsv
         @test_approx_eq full(full(Tldlt)) Fs
+        @test_throws DimensionMismatch Tldlt\rand(elty,n+1)
+        @test size(Tldlt) == size(Ts)
+        if elty <: FloatingPoint
+            @test typeof(convert(Base.LinAlg.LDLt{Float32},Tldlt)) == Base.LinAlg.LDLt{Float32,SymTridiagonal{elty}}
+        end
     end
 
     # eigenvalues/eigenvectors of symmetric tridiagonal
@@ -84,6 +94,9 @@ for elty in (Float32, Float64, Complex64, Complex128, Int)
         D, Vecs = eig(Fs)
         @test_approx_eq DT D
         @test_approx_eq abs(VT'Vecs) eye(elty, n)
+        @test eigvecs(Ts) == eigvecs(Fs)
+        #call to LAPACK.stein here
+        Test.test_approx_eq_modphase(eigvecs(Ts,eigvals(Ts)),eigvecs(Fs))
     end
 
     # Test det(A::Matrix)
@@ -116,24 +129,35 @@ for elty in (Float32, Float64, Complex64, Complex128, Int)
     # issue #1490
     @test_approx_eq_eps det(ones(elty, 3,3)) zero(elty) 3*eps(real(one(elty)))
 
+    @test det(SymTridiagonal(elty[],elty[])) == one(elty)
+
     #tril/triu
     @test_throws ArgumentError tril!(SymTridiagonal(d,dl),n+1)
     @test_throws ArgumentError tril!(Tridiagonal(dl,d,du),n+1)
     @test tril(SymTridiagonal(d,dl))    == Tridiagonal(dl,d,zeros(dl))
     @test tril(SymTridiagonal(d,dl),1)  == Tridiagonal(dl,d,dl)
     @test tril(SymTridiagonal(d,dl),-1) == Tridiagonal(dl,zeros(d),zeros(dl))
+    @test tril(SymTridiagonal(d,dl),-2) == Tridiagonal(zeros(dl),zeros(d),zeros(dl))
     @test tril(Tridiagonal(dl,d,du))    == Tridiagonal(dl,d,zeros(du))
     @test tril(Tridiagonal(dl,d,du),1)  == Tridiagonal(dl,d,du)
     @test tril(Tridiagonal(dl,d,du),-1) == Tridiagonal(dl,zeros(d),zeros(du))
+    @test tril(Tridiagonal(dl,d,du),-2) == Tridiagonal(zeros(dl),zeros(d),zeros(du))
 
     @test_throws ArgumentError triu!(SymTridiagonal(d,dl),n+1)
     @test_throws ArgumentError triu!(Tridiagonal(dl,d,du),n+1)
     @test triu(SymTridiagonal(d,dl))    == Tridiagonal(zeros(dl),d,dl)
     @test triu(SymTridiagonal(d,dl),-1) == Tridiagonal(dl,d,dl)
     @test triu(SymTridiagonal(d,dl),1)  == Tridiagonal(zeros(dl),zeros(d),dl)
+    @test triu(SymTridiagonal(d,dl),2)  == Tridiagonal(zeros(dl),zeros(d),zeros(dl))
     @test triu(Tridiagonal(dl,d,du))    == Tridiagonal(zeros(dl),d,du)
     @test triu(Tridiagonal(dl,d,du),-1) == Tridiagonal(dl,d,du)
     @test triu(Tridiagonal(dl,d,du),1)  == Tridiagonal(zeros(dl),zeros(d),du)
+    @test triu(Tridiagonal(dl,d,du),2)  == Tridiagonal(zeros(dl),zeros(d),zeros(du))
+
+    @test !istril(SymTridiagonal(d,dl))
+    @test !istriu(SymTridiagonal(d,dl))
+    @test istriu(Tridiagonal(zeros(dl),d,du))
+    @test istril(Tridiagonal(dl,d,zeros(du)))
     end
 end
 
@@ -164,6 +188,7 @@ let n = 12 #Size of matrix problem to test
         end
 
         @test_throws DimensionMismatch SymTridiagonal(a, ones(n+1))
+        @test_throws ArgumentError SymTridiagonal(rand(n,n))
 
         A = SymTridiagonal(a, b)
         fA = map(elty <: Complex ? Complex128 : Float64, full(A))
@@ -355,3 +380,7 @@ end
 
 # Issue 12068
 SymTridiagonal([1, 2], [0])^3 == [1 0; 0 8]
+
+#test convert for SymTridiagonal
+@test convert(SymTridiagonal{Float64},SymTridiagonal(ones(Float32,5),ones(Float32,4))) == SymTridiagonal(ones(Float64,5),ones(Float64,4))
+@test convert(AbstractMatrix{Float64},SymTridiagonal(ones(Float32,5),ones(Float32,4))) == SymTridiagonal(ones(Float64,5),ones(Float64,4))

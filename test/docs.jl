@@ -37,6 +37,14 @@ end
 "f-2"
 f(x, y) = x + y
 
+"s-1"
+@generated function s(x)
+    :(x)
+end
+
+"s-2"
+@generated s(x, y) = :(x + y)
+
 "g"
 function g end
 
@@ -87,6 +95,15 @@ t(::Int, ::Any)
 "t-3"
 t{S <: Integer}(::S)
 
+"FieldDocs"
+type FieldDocs
+    "one"
+    one
+    doc"two"
+    two
+    three
+end
+
 end
 
 import Base.Docs: meta
@@ -100,6 +117,15 @@ let f = DocsTest.f
     @test funcdoc.order == order
     @test funcdoc.meta[order[1]] == doc"f-1"
     @test funcdoc.meta[order[2]] == doc"f-2"
+end
+
+let s = DocsTest.s
+    funcdoc = meta(DocsTest)[s]
+    order = [methods(s, sig)[1] for sig in [(Any,), (Any, Any)]]
+    @test funcdoc.main == nothing
+    @test funcdoc.order == order
+    @test funcdoc.meta[order[1]] == doc"s-1"
+    @test funcdoc.meta[order[2]] == doc"s-2"
 end
 
 let g = DocsTest.g
@@ -139,6 +165,11 @@ end
 @test @doc(DocsTest.t(::AbstractString)) == doc"t-1"
 @test @doc(DocsTest.t(::Int, ::Any)) == doc"t-2"
 @test @doc(DocsTest.t{S <: Integer}(::S)) == doc"t-3"
+
+let fields = meta(DocsTest)[DocsTest.FieldDocs].fields
+    @test haskey(fields, :one) && fields[:one] == doc"one"
+    @test haskey(fields, :two) && fields[:two] == doc"two"
+end
 
 # issue 11993
 # Check if we are documenting the expansion of the macro

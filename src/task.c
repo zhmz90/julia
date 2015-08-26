@@ -208,6 +208,7 @@ static void NORETURN finish_task(jl_task_t *t, jl_value_t *resultval)
     else
         t->state = done_sym;
     t->result = resultval;
+    jl_gc_wb(t, t->result);
     // TODO: early free of t->stkbuf
 #ifdef COPY_STACKS
     t->stkbuf = NULL;
@@ -222,12 +223,21 @@ static void NORETURN finish_task(jl_task_t *t, jl_value_t *resultval)
     abort();
 }
 
+static void throw_if_exception_set(jl_task_t *t)
+{
+    if (t->exception != NULL && t->exception != jl_nothing) {
+        jl_value_t *exc = t->exception;
+        t->exception = jl_nothing;
+        jl_throw(exc);
+    }
+}
+
 static void NOINLINE NORETURN start_task()
 {
     // this runs the first time we switch to a task
     jl_task_t *t = jl_current_task;
-    jl_value_t *res;
-    res = jl_apply(t->start, NULL, 0);
+    throw_if_exception_set(t);
+    jl_value_t *res = jl_apply(t->start, NULL, 0);
     finish_task(t, res);
     abort();
 }
@@ -292,6 +302,7 @@ static void ctx_switch(jl_task_t *t, jl_jmp_buf *where)
     */
     //JL_SIGATOMIC_BEGIN();
     if (!jl_setjmp(jl_current_task->ctx, 0)) {
+        bt_size = 0;  // backtraces don't survive task switches, see e.g. issue #12485
 #ifdef COPY_STACKS
         jl_task_t *lastt = jl_current_task;
         save_stack(lastt);
@@ -368,12 +379,7 @@ DLLEXPORT jl_value_t *jl_switchto(jl_task_t *t, jl_value_t *arg)
     ctx_switch(t, &t->ctx);
     jl_value_t *val = jl_task_arg_in_transit;
     jl_task_arg_in_transit = jl_nothing;
-    if (jl_current_task->exception != NULL &&
-        jl_current_task->exception != jl_nothing) {
-        jl_value_t *exc = jl_current_task->exception;
-        jl_current_task->exception = jl_nothing;
-        jl_throw(exc);
-    }
+    throw_if_exception_set(jl_current_task);
     return val;
 }
 
@@ -740,9 +746,11 @@ DLLEXPORT void gdblookup(ptrint_t ip)
     frame_info_from_ip(&func_name, &line_num, &file_name, ip, 0);
     if (line_num == ip) {
         jl_safe_printf("unknown function (ip: %p)\n", (void*)ip);
-    } else if (line_num == -1) {
+    }
+    else if (line_num == -1) {
         jl_safe_printf("%s at %s (unknown line)\n", func_name, file_name);
-    } else {
+    }
+    else {
         jl_safe_printf("%s at %s:%" PRIuPTR "\n", func_name, file_name,
                        (uintptr_t)line_num);
     }
@@ -779,6 +787,7 @@ void NORETURN throw_internal(jl_value_t *e)
             jl_exit(1);
         }
         jl_current_task->exception = e;
+        jl_gc_wb(jl_current_task, e);
         finish_task(jl_current_task, e);
         assert(0);
     }

@@ -542,9 +542,13 @@ void jl_module_run_initializer(jl_module_t *m)
         jl_apply(f, NULL, 0);
     }
     JL_CATCH {
-        jl_printf(JL_STDERR, "WARNING: error initializing module %s:\n", m->name->name);
-        jl_static_show(JL_STDERR, jl_exception_in_transit);
-        jl_printf(JL_STDERR, "\n");
+        if (jl_initerror_type == NULL) {
+            jl_rethrow();
+        }
+        else {
+            jl_rethrow_other(jl_new_struct(jl_initerror_type, m->name,
+                                           jl_exception_in_transit));
+        }
     }
 }
 
@@ -552,7 +556,7 @@ jl_function_t *jl_module_call_func(jl_module_t *m)
 {
     if (m->call_func == NULL) {
         jl_function_t *cf = (jl_function_t*)jl_get_global(m, call_sym);
-        if (cf == NULL || !jl_is_function(cf))
+        if (cf == NULL || !jl_is_function(cf) || !jl_is_gf(cf))
             cf = jl_bottom_func;
         m->call_func = cf;
     }

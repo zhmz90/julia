@@ -23,6 +23,7 @@
 #include <llvm/IR/IntrinsicInst.h>
 #ifdef LLVM38
 #include <llvm/Analysis/BasicAliasAnalysis.h>
+#include <llvm/Analysis/TypeBasedAliasAnalysis.h>
 #endif
 #ifdef LLVM37
 #include "llvm/IR/LegacyPassManager.h"
@@ -407,9 +408,9 @@ struct jl_varinfo_t {
 static void jl_dump_shadow(char *fname, int jit_model, const char *sysimg_data, size_t sysimg_len, bool dump_as_bc);
 
 extern "C"
-void jl_dump_bitcode(char *fname)
+void jl_dump_bitcode(char *fname, const char *sysimg_data, size_t sysimg_len)
 {
-    jl_dump_shadow(fname, 0, NULL, 0, true);
+    jl_dump_shadow(fname, 0, sysimg_data, sysimg_len, true);
 }
 
 extern "C"
@@ -894,17 +895,6 @@ void *jl_function_ptr(jl_function_t *f, jl_value_t *rt, jl_value_t *argt)
     assert(llvmf);
     JL_GC_POP();
 #ifdef USE_MCJIT
-    if (imaging_mode) {
-        // Copy the function out of the shadow module, unless this was done before
-        void *addr = (void*)(intptr_t)jl_ExecutionEngine->getFunctionAddress(llvmf->getName());
-        if (addr != nullptr) {
-            return addr;
-        }
-        Module *m = new Module("julia", jl_LLVMContext);
-        jl_setup_module(m, true);
-        FunctionMover mover(m, shadow_module);
-        llvmf = mover.CloneFunction(llvmf);
-    }
     return (void*)(intptr_t)jl_ExecutionEngine->getFunctionAddress(llvmf->getName());
 #else
     return jl_ExecutionEngine->getPointerToFunction(llvmf);
@@ -2614,7 +2604,7 @@ static Value *emit_call(jl_value_t **args, size_t arglen, jl_codectx_t *ctx, jl_
         Value *r = emit_known_call((jl_value_t*)f, args-1, nargs+1, ctx, &theFptr, &f, expr);
         assert(r == NULL); (void) r;
         if (theFptr == NULL) {
-            just_emit_error("\"call\" is not a function", ctx);
+            just_emit_error("\"call\" is not a generic function", ctx);
             result = UndefValue::get(jl_pvalue_llvmt);
         }
         else {
@@ -2688,17 +2678,25 @@ static Value *emit_call(jl_value_t **args, size_t arglen, jl_codectx_t *ctx, jl_
         builder.SetInsertPoint(elseBB1);
         // not function
         myargs = emit_temp_slot(argStart, ctx);
+        jl_value_t *call_func = (jl_value_t*)jl_module_call_func(ctx->module);
+        Value *r2;
+        if (!jl_is_gf(call_func)) {
+            just_emit_error("\"call\" is not a generic function", ctx);
+            r2 = UndefValue::get(jl_pvalue_llvmt);
+        }
+        else {
 #ifdef LLVM37
-        Value *r2 = builder.CreateCall(prepare_call(jlapplygeneric_func),
-                                        {literal_pointer_val((jl_value_t*)jl_module_call_func(ctx->module)),
-                                        myargs,
-                                        ConstantInt::get(T_int32,nargs+1)});
+            r2 = builder.CreateCall(prepare_call(jlapplygeneric_func),
+                                    {literal_pointer_val(call_func),
+                                     myargs,
+                                     ConstantInt::get(T_int32, nargs + 1)});
 #else
-        Value *r2 = builder.CreateCall3(prepare_call(jlapplygeneric_func),
-                                        literal_pointer_val((jl_value_t*)jl_module_call_func(ctx->module)),
-                                        myargs,
-                                        ConstantInt::get(T_int32,nargs+1));
+            r2 = builder.CreateCall3(prepare_call(jlapplygeneric_func),
+                                     literal_pointer_val(call_func),
+                                     myargs,
+                                     ConstantInt::get(T_int32, nargs + 1));
 #endif
+        }
         builder.CreateBr(mergeBB1);
         ctx->f->getBasicBlockList().push_back(mergeBB1);
         builder.SetInsertPoint(mergeBB1);
@@ -3025,8 +3023,12 @@ static void emit_assignment(jl_value_t *l, jl_value_t *r, jl_codectx_t *ctx)
 
         if (!bp && !vi.hasGCRoot && vi.used && !vi.isArgument &&
                 !is_stable_expr(r, ctx)) {
-            vi.hasGCRoot = true; // this has been discovered to need a gc root
-            vi.memvalue = bp = emit_local_slot(ctx->gc.argSpaceSize++, ctx);
+            Instruction *newroot = cast<Instruction>(emit_local_slot(ctx->gc.argSpaceSize++, ctx));
+            newroot->removeFromParent(); // move it to the gc frame basic block so it can be reused as needed
+            newroot->insertAfter(ctx->gc.last_gcframe_inst);
+            vi.memvalue = bp = newroot;
+            vi.hasGCRoot = true; // this has been discovered to need a gc root, add it now
+            //TODO: move this logic after the emit_expr
         }
         Value *rval = emit_assignment(bp, r, vi.declType, vi.isVolatile, vi.used, ctx);
 
@@ -3111,16 +3113,6 @@ static Value *emit_expr(jl_value_t *expr, jl_codectx_t *ctx, bool isboxed, bool 
             jl_error("Linenode in value position");
         return NULL;
     }
-    if (jl_is_quotenode(expr)) {
-        jl_value_t *jv = jl_fieldref(expr,0);
-        if (jl_is_bitstype(jl_typeof(jv))) {
-            return emit_expr(jv, ctx, isboxed, valuepos);
-        }
-        if (!jl_is_symbol(jv)) {
-            jl_add_linfo_root(ctx->linfo, jv);
-        }
-        return literal_pointer_val(jv);
-    }
     if (jl_is_gotonode(expr)) {
         if (builder.GetInsertBlock()->getTerminator() == NULL) {
             int labelname = jl_gotonode_label(expr);
@@ -3166,17 +3158,33 @@ static Value *emit_expr(jl_value_t *expr, jl_codectx_t *ctx, bool isboxed, bool 
         }
         return NULL;
     }
+    if (jl_is_lambda_info(expr)) {
+        return emit_lambda_closure(expr, ctx);
+    }
     if (!jl_is_expr(expr)) {
+        int needroot = true;
+        if (jl_is_quotenode(expr)) {
+            expr = jl_fieldref(expr,0);
+            if (jl_is_symbol(expr)) {
+                needroot = false;
+            }
+        }
         // numeric literals
-        int needroot = 1;
         if (jl_is_int32(expr)) {
-            needroot = !((uint32_t)(jl_unbox_int32(expr)+512) < 1024);
+            int32_t val = jl_unbox_int32(expr);
+            if ((uint32_t)(val+512) < 1024) {
+                // this can be gotten from the box cache
+                needroot = false;
+                expr = jl_box_int32(val);
+            }
         }
         else if (jl_is_int64(expr)) {
-            needroot = !((uint64_t)(jl_unbox_int64(expr)+512) < 1024);
-        }
-        else if (jl_is_lambda_info(expr)) {
-            return emit_lambda_closure(expr, ctx);
+            uint64_t val = jl_unbox_uint64(expr);
+            if ((uint64_t)(val+512) < 1024) {
+                // this can be gotten from the box cache
+                needroot = false;
+                expr = jl_box_int64(val);
+            }
         }
         if (needroot) {
             jl_add_linfo_root(ctx->linfo, expr);
@@ -3500,7 +3508,7 @@ static void finalize_gc_frame(jl_codectx_t *ctx)
     }
     BasicBlock::iterator bbi(gc->gcframe);
     AllocaInst *newgcframe = gc->gcframe;
-    builder.SetInsertPoint(++gc->last_gcframe_inst); // set insert *before* point
+    builder.SetInsertPoint(++gc->last_gcframe_inst); // set insert *before* point, e.g. after the gcframe
     // Allocate the real GC frame
     // n_frames++;
     newgcframe->setOperand(0, ConstantInt::get(T_int32, 2 + gc->argSpaceSize + gc->maxDepth)); // fix up the size of the gc frame
@@ -3562,8 +3570,21 @@ static Function *gen_cfun_wrapper(jl_function_t *ff, jl_value_t *jlrettype, jl_t
     if (fargt.size() != fargt_sig.size())
         jl_error("va_arg syntax not allowed for cfunction argument list");
 
+    jl_compile(ff);
+    if (!lam->functionObject) {
+        jl_errorf("error compiling %s while creating cfunction", lam->name->name);
+    }
+
     std::stringstream funcName;
     funcName << "jlcapi_" << lam->name->name << "_" << globalUnique++;
+
+    // Backup the info for the nested compile
+    JL_SIGATOMIC_BEGIN(); // no errors expected beyond this point
+    BasicBlock *old = nested_compile ? builder.GetInsertBlock() : NULL;
+    DebugLoc olddl = builder.getCurrentDebugLocation();
+    bool last_n_c = nested_compile;
+    nested_compile = true;
+    jl_gc_inhibit_finalizers(nested_compile); // no allocations expected between the top of this function (when last scanned lam->cFunctionList) and here, which might have triggered running julia code
 
     // Create the Function stub
     Module *m;
@@ -3604,7 +3625,6 @@ static Function *gen_cfun_wrapper(jl_function_t *ff, jl_value_t *jlrettype, jl_t
     lam->cFunctionList = list2;
 
     // See whether this function is specsig or jlcall
-    jl_compile(ff);
     bool specsig;
     Function *theFptr;
     if (lam->specFunctionObject != NULL) {
@@ -3614,10 +3634,8 @@ static Function *gen_cfun_wrapper(jl_function_t *ff, jl_value_t *jlrettype, jl_t
     else {
         theFptr = (Function*)lam->functionObject;
         specsig = false;
-        if (!theFptr) {
-            jl_errorf("error compiling %s while creating cfunction", lam->name->name);
-        }
     }
+    assert(theFptr);
 
     // Alright, let's do this!
     // let's first emit the arguments
@@ -3739,6 +3757,29 @@ static Function *gen_cfun_wrapper(jl_function_t *ff, jl_value_t *jlrettype, jl_t
     }
 #endif
 
+#ifdef USE_MCJIT
+    if (imaging_mode) {
+        // Copy the function out of the shadow module
+        Module *m = new Module("julia", jl_LLVMContext);
+        jl_setup_module(m, true);
+        FunctionMover mover(m, shadow_module);
+        Function *clone = mover.CloneFunction(cw);
+        FPM->run(*clone);
+    }
+    else {
+        FPM->run(*cw);
+    }
+#endif
+
+    // Restore the previous compile context
+    if (old != NULL) {
+        builder.SetInsertPoint(old);
+        builder.SetCurrentDebugLocation(olddl);
+    }
+    nested_compile = last_n_c;
+    jl_gc_inhibit_finalizers(nested_compile);
+    JL_SIGATOMIC_END();
+
     return cw;
 }
 
@@ -3849,6 +3890,8 @@ static Function *emit_function(jl_lambda_info_t *lam)
     size_t captvinfoslen = jl_array_dim0(captvinfos);
     size_t nreq = largslen;
     int va = 0;
+    if (!lam->specTypes)
+        lam->specTypes = jl_anytuple_type;
     if (nreq > 0 && jl_is_rest_arg(jl_cellref(largs,nreq-1))) {
         nreq--;
         va = 1;
@@ -3915,7 +3958,7 @@ static Function *emit_function(jl_lambda_info_t *lam)
     Function *f = NULL;
 
     bool specsig = false;
-    if (!va && !hasCapt && lam->specTypes != NULL && lam->inferred) {
+    if (!va && !hasCapt && lam->specTypes != jl_anytuple_type && lam->inferred) {
         // no captured vars and not vararg
         // consider specialized signature
         for(size_t i=0; i < jl_nparams(lam->specTypes); i++) {
@@ -4376,37 +4419,30 @@ static Function *emit_function(jl_lambda_info_t *lam)
     }
 
     // step 11. check arg count
-    if (ctx.linfo->specTypes == NULL) {
+    if (jl_is_va_tuple(ctx.linfo->specTypes)) {
+        std::string msg;
+        Value *enough;
         if (va) {
-            Value *enough =
-                builder.CreateICmpUGE(argCount,
+            msg = "too few arguments";
+            enough = builder.CreateICmpUGE(argCount,
                                       ConstantInt::get(T_int32, nreq));
-            BasicBlock *elseBB =
-                BasicBlock::Create(getGlobalContext(), "else", f);
-            BasicBlock *mergeBB =
-                BasicBlock::Create(getGlobalContext(), "ifcont");
-            builder.CreateCondBr(enough, mergeBB, elseBB);
-            builder.SetInsertPoint(elseBB);
-            just_emit_error("too few arguments", &ctx);
-            builder.CreateUnreachable();
-            f->getBasicBlockList().push_back(mergeBB);
-            builder.SetInsertPoint(mergeBB);
         }
         else {
-            Value *enough =
+            msg = "wrong number of arguments";
+            enough =
                 builder.CreateICmpEQ(argCount,
                                      ConstantInt::get(T_int32, nreq));
-            BasicBlock *elseBB =
-                BasicBlock::Create(getGlobalContext(), "else", f);
-            BasicBlock *mergeBB =
-                BasicBlock::Create(getGlobalContext(), "ifcont");
-            builder.CreateCondBr(enough, mergeBB, elseBB);
-            builder.SetInsertPoint(elseBB);
-            just_emit_error("wrong number of arguments", &ctx);
-            builder.CreateUnreachable();
-            f->getBasicBlockList().push_back(mergeBB);
-            builder.SetInsertPoint(mergeBB);
         }
+        BasicBlock *elseBB =
+            BasicBlock::Create(getGlobalContext(), "else", f);
+        BasicBlock *mergeBB =
+            BasicBlock::Create(getGlobalContext(), "ifcont");
+        builder.CreateCondBr(enough, mergeBB, elseBB);
+        builder.SetInsertPoint(elseBB);
+        just_emit_error(msg, &ctx);
+        builder.CreateUnreachable();
+        f->getBasicBlockList().push_back(mergeBB);
+        builder.SetInsertPoint(mergeBB);
     }
 
     // step 12. move args into local variables
@@ -4511,6 +4547,9 @@ static Function *emit_function(jl_lambda_info_t *lam)
                 // are always unspecialized we don't
                 assert(false);
             }
+        }
+        else {
+            assert(vi.memvalue == NULL);
         }
     }
 

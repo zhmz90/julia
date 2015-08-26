@@ -11,7 +11,7 @@ github_user() = readchomp(ignorestatus(`git config --global --get github.user`))
 function git_contributors(dir::AbstractString, n::Int=typemax(Int))
     contrib = Dict()
     tty = @windows? "CON:" : "/dev/tty"
-    for line in eachline(pipe(tty, Git.cmd(`shortlog -nes`, dir=dir)))
+    for line in eachline(pipeline(tty, Git.cmd(`shortlog -nes`, dir=dir)))
         m = match(r"\s*(\d+)\s+(.+?)\s+\<(.+?)\>\s*$", line)
         m === nothing && continue
         commits, name, email = m.captures
@@ -177,7 +177,7 @@ function travis(pkg::AbstractString; force::Bool=false)
         # uncomment the following lines to override the default test script
         #script:
         #  - if [[ -a .git/shallow ]]; then git fetch --unshallow; fi
-        #  - julia --check-bounds=yes -e 'Pkg.clone(pwd()); Pkg.build("$pkg"); Pkg.test("$pkg"; coverage=true)'
+        #  - julia -e 'Pkg.clone(pwd()); Pkg.build("$pkg"); Pkg.test("$pkg"; coverage=true)'
         """)
     end
 end

@@ -945,6 +945,8 @@ A = sprand(5,5,0.2)
 AF = full(A)
 @test full(triu(A,1)) == triu(AF,1)
 @test full(tril(A,1)) == tril(AF,1)
+@test full(triu!(copy(A), 2)) == triu(AF,2)
+@test full(tril!(copy(A), 2)) == tril(AF,2)
 @test_throws BoundsError tril(A,6)
 @test_throws BoundsError tril(A,-6)
 @test_throws BoundsError triu(A,6)
@@ -1076,6 +1078,23 @@ Ar = sprandn(20,20,.5)
 @test_approx_eq_eps cond(Ac,Inf) cond(full(Ac),Inf) 1e-4
 @test_throws ArgumentError cond(A,2)
 @test_throws ArgumentError cond(A,3)
+let Arect = spzeros(10, 6)
+    @test_throws DimensionMismatch cond(Arect, 1)
+    @test_throws ArgumentError cond(Arect,2)
+    @test_throws DimensionMismatch cond(Arect, Inf)
+end
+
+# test sparse matrix normestinv
+Ac = sprandn(20,20,.5) + im* sprandn(20,20,.5)
+Aci = ceil(Int64,100*sprand(20,20,.5))+ im*ceil(Int64,sprand(20,20,.5))
+Ar = sprandn(20,20,.5)
+Ari = ceil(Int64,100*Ar)
+@test_approx_eq_eps Base.SparseMatrix.normestinv(Ac,3) norm(inv(full(Ac)),1) 1e-4
+@test_approx_eq_eps Base.SparseMatrix.normestinv(Aci,3) norm(inv(full(Aci)),1) 1e-4
+@test_approx_eq_eps Base.SparseMatrix.normestinv(Ar) norm(inv(full(Ar)),1) 1e-4
+@test_throws ArgumentError Base.SparseMatrix.normestinv(Ac,0)
+@test_throws ArgumentError Base.SparseMatrix.normestinv(Ac,21)
+@test_throws DimensionMismatch Base.SparseMatrix.normestinv(sprand(3,5,.9))
 
 @test_throws ErrorException transpose(sub(sprandn(10, 10, 0.3), 1:4, 1:4))
 @test_throws ErrorException ctranspose(sub(sprandn(10, 10, 0.3), 1:4, 1:4))
