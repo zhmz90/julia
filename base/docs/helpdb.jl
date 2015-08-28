@@ -4308,6 +4308,9 @@ This can be used to take advantage of multiple cores. ``addprocs(4)`` will add 4
 
  Equivalent to ``addprocs(CPU_CORES)``
 
+ Note that workers do not run a `.juliarc.jl` startup script, nor do they synchronize their global state
+(such as global variables, new method definitions, and loaded modules) with any of the other running processes.
+
 ::
 
            addprocs(machines; tunnel=false, sshflags=``, max_parallel=10, exeflags=``) -> List of process identifiers
@@ -6515,13 +6518,6 @@ Reorders the Generalized Schur factorization of a Generalized Schur object by ov
 ordschur!
 
 doc"""
-    whos([Module,] [pattern::Regex])
-
-Print information about exported global variables in a module, optionally restricted to those matching `pattern`.
-"""
-whos
-
-doc"""
 ```rst
 ::
 
@@ -7482,7 +7478,8 @@ sqrt
 doc"""
     atexit(f)
 
-Register a zero-argument function to be called at exit.
+Register a zero-argument function `f()` to be called at process exit.
+`atexit()` hooks are called in last in first out (LIFO) order and run before object finalizers.
 """
 atexit
 

@@ -12,10 +12,10 @@ export
 
 import
     Base: (*), +, -, /, <, <=, ==, >, >=, ^, besselj, besselj0, besselj1, bessely,
-        bessely0, bessely1, ceil, cmp, convert, copysign, deg2rad, div,
+        bessely0, bessely1, ceil, cmp, convert, copysign, div,
         exp, exp2, exponent, factorial, floor, fma, hypot, isinteger,
         isfinite, isinf, isnan, ldexp, log, log2, log10, max, min, mod, modf,
-        nextfloat, prevfloat, promote_rule, rad2deg, rem, round, show,
+        nextfloat, prevfloat, promote_rule, rem, round, show,
         showcompact, sum, sqrt, string, print, trunc, precision, exp10, expm1,
         gamma, lgamma, digamma, erf, erfc, zeta, eta, log1p, airyai,
         eps, signbit, sin, cos, tan, sec, csc, cot, acos, asin, atan,
@@ -30,9 +30,14 @@ import Base.GMP: ClongMax, CulongMax, CdoubleMax
 import Base.Math.lgamma_r
 
 function __init__()
-    # set exponent to full range by default
-    set_emin!(get_emin_min())
-    set_emax!(get_emax_max())
+    try
+        # set exponent to full range by default
+        set_emin!(get_emin_min())
+        set_emax!(get_emax_max())
+    catch ex
+        Base.showerror_nostdio(ex,
+            "WARNING: Error during initialization of module MPFR")
+    end
 end
 
 const ROUNDING_MODE = Cint[0]
@@ -411,9 +416,6 @@ function sqrt(x::BigFloat)
 end
 
 sqrt(x::BigInt) = sqrt(BigFloat(x))
-
-rad2deg(z::BigFloat) = 180/big(pi)*z
-deg2rad(z::BigFloat) = big(pi)/180*z
 
 function ^(x::BigFloat, y::BigFloat)
     z = BigFloat()
