@@ -58,6 +58,7 @@ New language features
     Default continues to be of length 1 ([#12385]).
     See http://docs.julialang.org/en/latest/manual/parallel-computing/#remoterefs-and-abstractchannels for details.
 
+  * `@__LINE__` special macro now available to reflect invocation source line number ([#12727]).
 
 Language changes
 ----------------
@@ -181,7 +182,7 @@ Command line option changes
 
   * The `-i` option now forces the REPL to run after loading the specified script (if any) ([#11347]).
 
-  * New option --handle-signals={yes|no} to disable Julia's signal handlers.
+  * New option `--handle-signals={yes|no}` to disable Julia's signal handlers.
 
   * The `--depwarn={yes|no|error}` option enables/disables syntax and method deprecation warnings,
     or turns them into errors ([#9294]).
@@ -298,7 +299,7 @@ Library improvements
 
     * `deepcopy` recurses through immutable types and makes copies of their mutable fields ([#8560]).
 
-    * `copy(a::DArray)` will now make a copy of a `DArray` ([#9745])
+    * `copy(a::DArray)` will now make a copy of a `DArray` ([#9745]).
 
   * New types
 
@@ -311,7 +312,7 @@ Library improvements
 
     * New `Nullable` type for missing data ([#8152]).
 
-    * A new `Val{T}` type allows one to dispatch on bits-type values ([#9452])
+    * A new `Val{T}` type allows one to dispatch on bits-type values ([#9452]).
 
     * `linspace` now returns a `LinSpace` object which lazily computes linear interpolation of values between the start and stop values. It "lifts" endpoints which are approximately rational in the same manner as the `colon` operator.
 
@@ -357,7 +358,7 @@ Library improvements
 
     * Significantly faster `randn` ([#9126], [#9132]).
 
-    * The `randexp` and `randexp!` functions are exported ([#9144])
+    * The `randexp` and `randexp!` functions are exported ([#9144]).
 
   * File
 
@@ -523,7 +524,9 @@ Deprecated or removed
 
     * `sync_gc_total_bytes` -> `jl_gc_sync_total_bytes`
 
-  * `require(::AbstractString)` and `reload` (see news about addition of `compile`)
+  * `require(::AbstractString)` and `reload` (see news about addition of `compile`).
+
+  * `cartesianmap` is deprecated in favor of iterating over a `CartesianRange`
 
 Julia v0.3.0 Release Notes
 ==========================

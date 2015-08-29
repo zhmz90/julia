@@ -2,6 +2,8 @@
 
 # Base.LinAlg.BLAS
 
+import .Docs: keywords
+
 doc"""
     ger!(alpha, x, y, A)
 
@@ -4483,38 +4485,38 @@ doc"""
 ```rst
 ::
 
-           pipe(from, to, ...)
+           pipeline(from, to, ...)
 
 Create a pipeline from a data source to a destination. The source and destination can
-be commands, I/O streams, strings, or results of other ``pipe`` calls. At least one
+be commands, I/O streams, strings, or results of other ``pipeline`` calls. At least one
 argument must be a command. Strings refer to filenames.
 When called with more than two arguments, they are chained together from left to right.
-For example ``pipe(a,b,c)`` is equivalent to ``pipe(pipe(a,b),c)``. This provides a more
+For example ``pipeline(a,b,c)`` is equivalent to ``pipeline(pipeline(a,b),c)``. This provides a more
 concise way to specify multi-stage pipelines.
 
 **Examples**:
-  * ``run(pipe(`ls`, `grep xyz`))``
-  * ``run(pipe(`ls`, "out.txt"))``
-  * ``run(pipe("out.txt", `grep xyz`))``
+  * ``run(pipeline(`ls`, `grep xyz`))``
+  * ``run(pipeline(`ls`, "out.txt"))``
+  * ``run(pipeline("out.txt", `grep xyz`))``
 
 ::
 
-           pipe(command; stdin, stdout, stderr, append=false)
+           pipeline(command; stdin, stdout, stderr, append=false)
 
 Redirect I/O to or from the given ``command``. Keyword arguments specify which of
 the command's streams should be redirected. ``append`` controls whether file output
 appends to the file.
-This is a more general version of the 2-argument ``pipe`` function.
-``pipe(from, to)`` is equivalent to ``pipe(from, stdout=to)`` when ``from`` is a
+This is a more general version of the 2-argument ``pipeline`` function.
+``pipeline(from, to)`` is equivalent to ``pipeline(from, stdout=to)`` when ``from`` is a
 command, and to ``pipe(to, stdin=from)`` when ``from`` is another kind of
 data source.
 
 **Examples**:
-  * ``run(pipe(`dothings`, stdout="out.txt", stderr="errs.txt"))``
-  * ``run(pipe(`update`, stdout="log.txt", append=true))``
+  * ``run(pipeline(`dothings`, stdout="out.txt", stderr="errs.txt"))``
+  * ``run(pipeline(`update`, stdout="log.txt", append=true))``
 ```
 """
-pipe
+pipeline
 
 doc"""
     serialize(stream, value)
@@ -5571,26 +5573,6 @@ doc"""
 ```
 """
 svdfact!
-
-doc"""
-```rst
-::
-
-           cartesianmap(f, dims)
-
-Given a ``dims`` tuple of integers ``(m, n, ...)``, call ``f`` on all combinations of
-integers in the ranges ``1:m``, ``1:n``, etc.
-
-.. doctest::
-
-   julia> cartesianmap(println, (2,2))
-   11
-   21
-   12
-   22
-```
-"""
-cartesianmap
 
 doc"""
     hist2d(M, e1, e2) -> (edge1, edge2, counts)
@@ -9537,12 +9519,20 @@ Returns an iterator over substrings of `s` that correspond to the extended graph
 """
 graphemes
 
-doc"""
+keywords[symbol("@__FILE__")] = doc"""
+
     @__FILE__() -> AbstractString
 
-`@__FILE__` expands to a string with the absolute path and file name of the script being run. Returns `nothing` if run from a REPL or an empty string if evaluated by `julia -e <expr>`.
+`@__FILE__` expands to a string with the absolute path and file name of the script being run.
+Returns `"none"` if run from a REPL or command-line context.
 """
-:@__FILE__
+
+keywords[symbol("@__LINE__")] = doc"""
+
+    @__LINE__() -> Int
+
+`@__LINE__` expands to the line number of the call-site.
+"""
 
 doc"""
     charwidth(c)

@@ -43,7 +43,9 @@ Base.convert{T,N  }(::Type{TSlow     }, X::AbstractArray{T,N}) = convert(TSlow{T
 Base.convert{T,N,_}(::Type{TSlow{T  }}, X::AbstractArray{_,N}) = convert(TSlow{T,N}, X)
 Base.convert{T,N  }(::Type{TSlow{T,N}}, X::AbstractArray     ) = begin
     A = TSlow(T, size(X))
-    cartesianmap((I...)->(A[I...] = X[I...]), size(X))
+    for I in CartesianRange(size(X))
+        A[I.I...] = X[I.I...]
+    end
     A
 end
 
@@ -202,9 +204,6 @@ function test_primitives{T}(::Type{T}, shape, ::Type{TestAbstractArray})
     N = prod(shape)
     A = reshape(1:N, shape)
     B = T(A)
-
-    # elsize{T}(::AbstractArray{T})
-    @test Base.elsize(B) == sizeof(T.parameters)
 
     # last(a)
     @test last(B) == B[length(B)]
@@ -371,17 +370,6 @@ function test_ind2sub(::Type{TestAbstractArray})
     end
 end
 
-function test_cartesianmap(::Type{TestAbstractArray})
-    f(x, y, z, B::Array) = push!(B, (x, y, z))
-    B = NTuple{3, Int}[]
-    cartesianmap(f, (3, 3, 3, 1), B)
-    @test B == NTuple{3, Int}[(1,1,1), (2,1,1), (3,1,1), (1,2,1), (2,2,1), (3,2,1),
-        (1,3,1), (2,3,1), (3,3,1), (1,1,2), (2,1,2), (3,1,2), (1,2,2), (2,2,2),
-        (3,2,2), (1,3,2), (2,3,2), (3,3,2), (1,1,3), (2,1,3), (3,1,3), (1,2,3),
-        (2,2,3), (3,2,3), (1,3,3), (2,3,3), (3,3,3)]
-    @test_throws ArgumentError cartesianmap(f, (1,), B)
-end
-
 type GenericIterator{N} end
 Base.start{N}(::GenericIterator{N}) = 1
 Base.next{N}(::GenericIterator{N}, i) = (i, i + 1)
@@ -479,7 +467,6 @@ test_setindex!_internals(TestAbstractArray)
 test_get(TestAbstractArray)
 test_cat(TestAbstractArray)
 test_ind2sub(TestAbstractArray)
-test_cartesianmap(TestAbstractArray)
 test_map(TestAbstractArray)
 test_map_promote(TestAbstractArray)
 test_UInt_indexing(TestAbstractArray)
