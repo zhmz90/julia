@@ -265,6 +265,11 @@ Library improvements
 
     * `is_valid_char(c)` now correctly handles Unicode "non-characters", which are valid Unicode codepoints ([#11171]).
 
+    * Backreferences in replacement strings in calls to `replace` with a `Regex` pattern are now supported ([#11849]).
+      Use the `s` string prefix to indicate a replacement string contains a backreference. For example, `replace("ab", r"(.)(.)", s"\2\1")` yields "ba".
+
+    * Capture groups in regular expressions can now be named using PCRE syntax, `(?P<group_name>...)`. Capture group matches can be accessed by name by indexing a `Match` object with the name of the group ([#11566]).
+
   * Array and AbstractArray improvements
 
     * New multidimensional iterators and index types for efficient iteration over `AbstractArray`s. Array iteration should generally be written as `for i in eachindex(A) ... end` rather than `for i = 1:length(A) ... end` ([#8432]).
@@ -363,6 +368,8 @@ Library improvements
   * File
 
     * Added function `readlink` which returns the value of a symbolic link "path" ([#10714]).
+
+    * Added function `ismount` which checks if a directory is a mount point ([#11279]).
 
     * The `cp` function now accepts keyword arguments `remove_destination` and `follow_symlinks` ([#10888]).
 
@@ -1587,11 +1594,14 @@ Too numerous to mention.
 [#11145]: https://github.com/JuliaLang/julia/issues/11145
 [#11171]: https://github.com/JuliaLang/julia/issues/11171
 [#11241]: https://github.com/JuliaLang/julia/issues/11241
+[#11279]: https://github.com/JuliaLang/julia/issues/11279
 [#11347]: https://github.com/JuliaLang/julia/issues/11347
 [#11379]: https://github.com/JuliaLang/julia/issues/11379
 [#11432]: https://github.com/JuliaLang/julia/issues/11432
+[#11566]: https://github.com/JuliaLang/julia/issues/11566
 [#11686]: https://github.com/JuliaLang/julia/issues/11686
 [#11741]: https://github.com/JuliaLang/julia/issues/11741
+[#11849]: https://github.com/JuliaLang/julia/issues/11849
 [#11891]: https://github.com/JuliaLang/julia/issues/11891
 [#11922]: https://github.com/JuliaLang/julia/issues/11922
 [#11985]: https://github.com/JuliaLang/julia/issues/11985
@@ -1608,4 +1618,5 @@ Too numerous to mention.
 [#12472]: https://github.com/JuliaLang/julia/issues/12472
 [#12491]: https://github.com/JuliaLang/julia/issues/12491
 [#12576]: https://github.com/JuliaLang/julia/issues/12576
+[#12727]: https://github.com/JuliaLang/julia/issues/12727
 [#12739]: https://github.com/JuliaLang/julia/issues/12739
