@@ -52,7 +52,11 @@ function Base.showarray(io::IO, S::SparseMatrixCSC;
     for col = 1:S.n, k = S.colptr[col] : (S.colptr[col+1]-1)
         if k < half_screen_rows || k > nnz(S)-half_screen_rows
             print(io, sep, '[', rpad(S.rowval[k], pad), ", ", lpad(col, pad), "]  =  ")
-            showcompact(io, S.nzval[k])
+            if isassigned(S.nzval, k)
+                showcompact(io, S.nzval[k])
+            else
+                print(io, Base.undef_ref_str)
+            end
         elseif k == half_screen_rows
             print(io, sep, '\u22ee')
         end
@@ -653,6 +657,9 @@ function gen_broadcast_body_sparse(f::Function, is_first_sparse::Bool)
         ptrB = 1
         colptrB[1] = 1
 
+        Tr1 = eltype(rowval1)
+        Tr2 = eltype(rowval2)
+
         @inbounds for col = 1:B.n
             ptr1::Int  = A_1.n == 1 ? colptr1[1] : colptr1[col]
             stop1::Int = A_1.n == 1 ? colptr1[2] : colptr1[col+1]
@@ -714,8 +721,8 @@ function gen_broadcast_body_sparse(f::Function, is_first_sparse::Bool)
                 end
             elseif  A_1.m != 1  # A_1.m != 1 && A_2.m == 1
                 scalar2 = A_2.nzval[ptr2]
-                row1 = ptr1 < stop1 ? rowval1[ptr1] : -1
-                for row2 = 1:B.m
+                row1 = ptr1 < stop1 ? rowval1[ptr1] : -one(Tr1)
+                for row2 = one(Tr2):Tr2(B.m)
                     if ptr1 >= stop1 || row1 != row2
                         res = ($F)(z, scalar2)
                         if res != z
@@ -731,13 +738,13 @@ function gen_broadcast_body_sparse(f::Function, is_first_sparse::Bool)
                             ptrB += 1
                         end
                         ptr1 += 1
-                        row1 = ptr1 < stop1 ? rowval1[ptr1] : -1
+                        row1 = ptr1 < stop1 ? rowval1[ptr1] :  -one(Tr1)
                     end
                 end
             else  # A_1.m == 1 && A_2.m != 1
                 scalar1 = nzval1[ptr1]
-                row2 = ptr2 < stop2 ? rowval2[ptr2] : -1
-                for row1 = 1:B.m
+                row2 = ptr2 < stop2 ? rowval2[ptr2] :  -one(Tr2)
+                for row1 = one(Tr1):Tr1(B.m)
                     if ptr2 >= stop2 || row1 != row2
                         res = ($F)(scalar1, z)
                         if res != z
@@ -753,7 +760,7 @@ function gen_broadcast_body_sparse(f::Function, is_first_sparse::Bool)
                             ptrB += 1
                         end
                         ptr2 += 1
-                        row2 = ptr2 < stop2 ? rowval2[ptr2] : -1
+                        row2 = ptr2 < stop2 ? rowval2[ptr2] :  -one(Tr2)
                     end
                 end
             end

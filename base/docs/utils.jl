@@ -6,7 +6,7 @@ import Base: print, writemime
 
 export HTML, @html_str
 
-export HTML, Text
+export HTML, Text, apropos
 
 """
 `HTML(s)`: Create an object that renders `s` as html.
@@ -34,7 +34,11 @@ end
 writemime(io::IO, ::MIME"text/html", h::HTML) = print(io, h.content)
 writemime(io::IO, ::MIME"text/html", h::HTML{Function}) = h.content(io)
 
-"Create an `HTML` object from a literal string."
+"""
+    @html_str -> Docs.HTML
+
+Create an `HTML` object from a literal string.
+"""
 macro html_str(s)
     :(HTML($s))
 end
@@ -68,7 +72,11 @@ print(io::IO, t::Text) = print(io, t.content)
 print(io::IO, t::Text{Function}) = t.content(io)
 writemime(io::IO, ::MIME"text/plain", t::Text) = print(io, t)
 
-"Create a `Text` object from a literal string."
+"""
+    @text_str -> Docs.Text
+
+Create a `Text` object from a literal string.
+"""
 macro text_str(s)
     :(Text($s))
 end
@@ -114,11 +122,12 @@ macro repl(ex)
             if $(isfield(ex) ? :(isa($(esc(ex.args[1])), DataType)) : false)
                 $(isfield(ex) ? :(fielddoc($(esc(ex.args[1])), $(ex.args[2]))) : nothing)
             else
-                @doc $(esc(ex))
+                $((isa(ex,Symbol) || isfield(ex) || isexpr(ex,:macrocall)) ? :(@doc ($(esc(ex)))) : Base.gen_call_with_extracted_types(doc, ex))
             end
         end
     end
 end
+
 
 # Search & Rescue
 # Utilities for correcting user mistakes and (eventually)
@@ -270,3 +279,78 @@ accessible(mod::Module) =
 
 completions(name) = fuzzysort(name, accessible(current_module()))
 completions(name::Symbol) = completions(string(name))
+
+
+# Searching and apropos
+
+# Docsearch simply returns true or false if an object contains the given needle
+docsearch(haystack::AbstractString, needle) = !isempty(search(haystack, needle))
+docsearch(haystack::Symbol, needle) = docsearch(string(haystack), needle)
+docsearch(::Void, needle) = false
+function docsearch(haystack::Array, needle)
+    for elt in haystack
+        docsearch(elt, needle) && return true
+    end
+    false
+end
+function docsearch(haystack, needle)
+    warn_once("unable to search documentation of type $(typeof(haystack))")
+    false
+end
+
+## Searching specific documentation objects
+function docsearch(haystack::TypeDoc, needle)
+    docsearch(haystack.main, needle) && return true
+    for v in values(haystack.fields)
+        docsearch(v, needle) && return true
+    end
+    for v in values(haystack.meta)
+        docsearch(v, needle) && return true
+    end
+    false
+end
+
+function docsearch(haystack::FuncDoc, needle)
+    docsearch(haystack.main, needle) && return true
+    for v in values(haystack.meta)
+        docsearch(v, needle) && return true
+    end
+    false
+end
+
+## Recursive Markdown search
+docsearch(haystack::Markdown.BlockQuote, needle) = docsearch(haystack.content, needle)
+docsearch(haystack::Markdown.Bold, needle) = docsearch(haystack.text, needle)
+docsearch(haystack::Markdown.Code, needle) = docsearch(haystack.code, needle)
+docsearch(haystack::Markdown.Header, needle) = docsearch(haystack.text, needle)
+docsearch(haystack::Markdown.HorizontalRule, needle) = false
+docsearch(haystack::Markdown.Image, needle) = docsearch(haystack.alt, needle)
+docsearch(haystack::Markdown.Italic, needle) = docsearch(haystack.text, needle)
+docsearch(haystack::Markdown.LaTeX, needle) = docsearch(haystack.formula, needle)
+docsearch(haystack::Markdown.LineBreak, needle) = false
+docsearch(haystack::Markdown.Link, needle) = docsearch(haystack.text, needle) # URL too?
+docsearch(haystack::Markdown.List, needle) = docsearch(haystack.items, needle)
+docsearch(haystack::Markdown.MD, needle) = docsearch(haystack.content, needle)
+docsearch(haystack::Markdown.Paragraph, needle) = docsearch(haystack.content, needle)
+docsearch(haystack::Markdown.Table, needle) = docsearch(haystack.rows, needle)
+
+# Apropos searches through all available documentation for some string or regex
+"""
+    apropos(string)
+
+Search through all documention for a string, ignoring case.
+"""
+apropos(string) = apropos(STDOUT, string)
+apropos(io::IO, string) = apropos(io, Regex("\\Q$string", "i"))
+function apropos(io::IO, needle::Regex)
+    for mod in modules
+        # Module doc might be in README.md instead of the META dict
+        docsearch(doc(mod), needle) && println(io, mod)
+        for (k, v) in meta(mod)
+            (k === meta(mod) || k === mod) && continue
+            if docsearch(v, needle)
+                println(io, k)
+            end
+        end
+    end
+end

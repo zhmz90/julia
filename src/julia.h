@@ -666,7 +666,8 @@ STATIC_INLINE jl_value_t *jl_cellset(void *a, size_t i, void *x)
 
 #define jl_symbolnode_sym(s) ((jl_sym_t*)jl_fieldref(s,0))
 #define jl_symbolnode_type(s) (jl_fieldref(s,1))
-#define jl_linenode_line(x) (((ptrint_t*)x)[0])
+#define jl_linenode_file(x) ((jl_sym_t*)jl_fieldref(x,0))
+#define jl_linenode_line(x) (((ptrint_t*)jl_fieldref(x,1))[0])
 #define jl_labelnode_label(x) (((ptrint_t*)x)[0])
 #define jl_gotonode_label(x) (((ptrint_t*)x)[0])
 #define jl_globalref_mod(s) ((jl_module_t*)jl_fieldref(s,0))
@@ -859,7 +860,6 @@ int jl_is_type(jl_value_t *v);
 DLLEXPORT int jl_is_leaf_type(jl_value_t *v);
 DLLEXPORT int jl_has_typevars(jl_value_t *v);
 DLLEXPORT int jl_subtype(jl_value_t *a, jl_value_t *b, int ta);
-int jl_type_morespecific(jl_value_t *a, jl_value_t *b);
 DLLEXPORT int jl_types_equal(jl_value_t *a, jl_value_t *b);
 DLLEXPORT jl_value_t *jl_type_union(jl_svec_t *types);
 jl_value_t *jl_type_union_v(jl_value_t **ts, size_t n);
@@ -869,6 +869,7 @@ DLLEXPORT jl_value_t *jl_type_intersection(jl_value_t *a, jl_value_t *b);
 DLLEXPORT int jl_args_morespecific(jl_value_t *a, jl_value_t *b);
 DLLEXPORT const char *jl_typename_str(jl_value_t *v);
 DLLEXPORT const char *jl_typeof_str(jl_value_t *v);
+DLLEXPORT int jl_type_morespecific(jl_value_t *a, jl_value_t *b);
 
 // type constructors
 DLLEXPORT jl_typename_t *jl_new_typename(jl_sym_t *name);
