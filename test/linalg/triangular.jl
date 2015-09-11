@@ -120,6 +120,8 @@ for elty1 in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
 
         # real
         @test full(real(A1)) == real(full(A1))
+        @test full(imag(A1)) == imag(full(A1))
+        @test full(abs(A1)) == abs(full(A1))
 
         # Unary operations
         @test full(-A1) == -full(A1)
@@ -149,11 +151,13 @@ for elty1 in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
                 scale!(A1tmp,ci)
                 @test A1tmp == ci*A1
             end
-            @test scale(A1,cr) == cr*A1
-            @test scale(cr,A1) == cr*A1
-            @test scale(A1,ci) == ci*A1
-            @test scale(ci,A1) == ci*A1
         end
+
+        @test scale(A1,0.5) == 0.5*A1
+        @test scale(0.5,A1) == 0.5*A1
+        @test scale(A1,0.5im) == 0.5im*A1
+        @test scale(0.5im,A1) == 0.5im*A1
+
 
         # Binary operations
         @test A1*0.5 == full(A1)*0.5

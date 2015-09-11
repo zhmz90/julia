@@ -136,7 +136,7 @@ b = [4, 6, 2, -7, 1]
 ind = findin(a, b)
 @test ind == [3,4]
 
-rt = Base.return_types(setindex!, Tuple{Array{Int32, 3}, UInt8, Vector{Int}, Float64, UnitRange{Int}})
+rt = Base.return_types(setindex!, Tuple{Array{Int32, 3}, UInt8, Vector{Int}, Int16, UnitRange{Int}})
 @test length(rt) == 1 && rt[1] == Array{Int32, 3}
 
 # construction
@@ -761,6 +761,23 @@ let
     @test issorted(as[1,:])
     @test issorted(as[2,:])
     @test issorted(as[3,:])
+
+    local b = rand(21,21,2)
+
+    bs = sort(b, 1)
+    for i in 1:21
+        @test issorted(bs[:,i,1])
+        @test issorted(bs[:,i,2])
+    end
+
+    bs = sort(b, 2)
+    for i in 1:21
+        @test issorted(bs[i,:,1])
+        @test issorted(bs[i,:,2])
+    end
+
+    bs = sort(b, 3)
+    @test all(bs[:,:,1] .<= bs[:,:,2])
 end
 
 # fill
@@ -898,8 +915,8 @@ for N = 1:Nmax
     @test Base.return_types(getindex, Tuple{Array{Float32, N}, args...}) == [Array{Float32, N}]
     @test Base.return_types(getindex, Tuple{BitArray{N}, args...}) == Any[BitArray{N}]
     @test Base.return_types(setindex!, Tuple{Array{Float32, N}, Array{Int, 1}, args...}) == [Array{Float32, N}]
-    # Indexing with (UnitRange, UnitRange, Float64)
-    args = ntuple(d->d<N ? UnitRange{Int} : Float64, N)
+    # Indexing with (UnitRange, UnitRange, Int)
+    args = ntuple(d->d<N ? UnitRange{Int} : Int, N)
     N > 1 && @test Base.return_types(getindex, Tuple{Array{Float32, N}, args...}) == [Array{Float32, N-1}]
     N > 1 && @test Base.return_types(getindex, Tuple{BitArray{N}, args...}) == [BitArray{N-1}]
     N > 1 && @test Base.return_types(setindex!, Tuple{Array{Float32, N}, Array{Int, 1}, args...}) == [Array{Float32, N}]

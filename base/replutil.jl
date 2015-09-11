@@ -106,7 +106,7 @@ function showerror(io::IO, ex::DomainError, bt; backtrace=true)
         code = ccall(:jl_lookup_code_address, Any, (Ptr{Void}, Cint), b-1, true)
         if length(code) == 7 && !code[6]  # code[6] == fromC
             if code[1] in (:log, :log2, :log10, :sqrt) # TODO add :besselj, :besseli, :bessely, :besselk
-                print(io,"\n$(code[1]) will only return a complex result if called with a complex argument. Try $(code[1]) (complex(x)).")
+                print(io,"\n$(code[1]) will only return a complex result if called with a complex argument. Try $(code[1])(complex(x)).")
             elseif (code[1] == :^ && code[2] == symbol("intfuncs.jl")) || code[1] == :power_by_squaring #3024
                 print(io, "\nCannot raise an integer x to a negative power -n. \nMake x a float by adding a zero decimal (e.g. 2.0^-n instead of 2^-n), or write 1/x^n, float(x)^-n, or (x//1)^-n.")
             elseif code[1] == :^ && (code[2] == symbol("promotion.jl") || code[2] == symbol("math.jl"))
@@ -377,7 +377,7 @@ function show_backtrace(io::IO, t, set=1:typemax(Int))
     # in case its name changes in the future
     show_backtrace(io,
                     try
-                        symbol(string(eval_user_input))
+                        eval_user_input.env.name
                     catch
                         :(:) #for when client.jl is not yet defined
                     end, t, set)
@@ -387,6 +387,12 @@ function show_backtrace(io::IO, top_function::Symbol, t, set)
     process_entry(lastname, lastfile, lastline, last_inlinedat_file, last_inlinedat_line, n) =
         show_trace_entry(io, lastname, lastfile, lastline, last_inlinedat_file, last_inlinedat_line, n)
     process_backtrace(process_entry, top_function, t, set)
+end
+
+function show_backtrace(io::IO, top_function::Symbol, t::Vector{Any}, set)
+    for entry in t
+        show_trace_entry(io, entry...)
+    end
 end
 
 # process the backtrace, up to (but not including) top_function

@@ -116,6 +116,13 @@ import .Inner.@m
 "Inner.@m"
 :@m
 
+type Foo
+    x
+end
+
+# value with no docs
+const val = Foo(1.0)
+
 end
 
 import Base.Docs: meta
@@ -129,6 +136,10 @@ function docstrings_equal(d1, d2)
 end
 
 @test meta(DocsTest)[DocsTest] == doc"DocsTest"
+
+# Check that plain docstrings store a module reference.
+# https://github.com/JuliaLang/julia/pull/13017#issuecomment-138618663
+@test meta(DocsTest)[DocsTest].meta[:module] == DocsTest
 
 let f = DocsTest.f
     funcdoc = meta(DocsTest)[f]
@@ -209,6 +220,12 @@ let fields = meta(DocsTest)[DocsTest.FieldDocs].fields
     @test haskey(fields, :two) && fields[:two] == doc"two"
 end
 
+# test that when no docs exist, they fallback to
+# the docs for the typeof(value)
+let d1 = @doc(DocsTest.val)
+    @test d1 !== nothing
+end
+
 # Issue #12700.
 @test @doc(DocsTest.@m) == doc"Inner.@m"
 
@@ -223,7 +240,11 @@ end
 
 @doc "This should document @m1... since its the result of expansion" @m2_11993
 @test (@doc @m1_11993) !== nothing
-@test (@doc @m2_11993) === nothing
+let d = (@doc @m2_11993)
+    io = IOBuffer()
+    writemime(io, MIME"text/markdown"(), d)
+    @test startswith(takebuf_string(io),"No documentation found")
+end
 
 @doc "Now @m2... should be documented" :@m2_11993
 @test (@doc @m2_11993) !== nothing
@@ -295,6 +316,104 @@ f12593_2() = 1
 @test contains(sprint(apropos, "pearson"), "cov")
 @test contains(sprint(apropos, r"ind(exes|ices)"), "eachindex")
 @test contains(sprint(apropos, "print"), "Profile.print")
+
+# Undocumented DataType Summaries.
+
+module Undocumented
+
+abstract A
+abstract B <: A
+
+type C <: A end
+
+immutable D <: B
+    one
+    two::UTF8String
+    three::Float64
+end
+
+f = () -> nothing
+
+undocumented() = 1
+undocumented(x) = 2
+undocumented(x,y) = 3
+
+end
+
+@test docstrings_equal(@doc(Undocumented.A), doc"""
+No documentation found.
+
+**Summary:**
+```julia
+abstract Undocumented.A <: Any
+```
+
+**Subtypes:**
+```julia
+Undocumented.B
+Undocumented.C
+```
+""")
+
+@test docstrings_equal(@doc(Undocumented.B), doc"""
+No documentation found.
+
+**Summary:**
+```julia
+abstract Undocumented.B <: Undocumented.A
+```
+
+**Subtypes:**
+```julia
+Undocumented.D
+```
+""")
+
+@test docstrings_equal(@doc(Undocumented.C), doc"""
+No documentation found.
+
+**Summary:**
+```julia
+type Undocumented.C <: Undocumented.A
+```
+""")
+
+@test docstrings_equal(@doc(Undocumented.D), doc"""
+No documentation found.
+
+**Summary:**
+```julia
+immutable Undocumented.D <: Undocumented.B
+```
+
+**Fields:**
+```julia
+one   :: Any
+two   :: UTF8String
+three :: Float64
+```
+""")
+
+let d = @doc Undocumented.f
+    io = IOBuffer()
+    writemime(io, MIME"text/markdown"(), d)
+    @test startswith(takebuf_string(io),"""
+    No documentation found.
+
+    `Undocumented.f` is an anonymous `Function`.
+    """)
+end
+
+let d = @doc Undocumented.undocumented
+    io = IOBuffer()
+    writemime(io, MIME"text/markdown"(), d)
+    @test startswith(takebuf_string(io), """
+    No documentation found.
+
+    `Undocumented.undocumented` is a generic `Function`.
+    """)
+end
+
 
 # Bindings.
 

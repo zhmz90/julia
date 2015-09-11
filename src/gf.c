@@ -234,6 +234,9 @@ static jl_function_t *jl_method_table_assoc_exact_by_type(jl_methtable_t *mt, jl
                                 ml->sig, ml->va)) {
             return ml->func;
         }
+        // see corresponding code in jl_method_table_assoc_exact
+        if (ml->func == jl_bottom_func && jl_subtype((jl_value_t*)types, (jl_value_t*)ml->sig, 0))
+            return jl_bottom_func;
         ml = ml->next;
     }
     return jl_bottom_func;
@@ -283,6 +286,11 @@ static jl_function_t *jl_method_table_assoc_exact(jl_methtable_t *mt, jl_value_t
             if (cache_match(args, n, ml->sig, ml->va, lensig)) {
                 return ml->func;
             }
+            // if we hit a guard entry (ml->func == jl_bottom_func), do a more
+            // expensive subtype check, since guard entries added for ANY might be
+            // abstract. this fixed issue #12967.
+            if (ml->func == jl_bottom_func && jl_tuple_subtype(args, n, ml->sig, 1))
+                return jl_bottom_func;
         }
         ml = ml->next;
     }
@@ -1924,7 +1932,13 @@ static jl_value_t *ml_matches(jl_methlist_t *ml, jl_value_t *type,
                 size_t l = jl_array_len(t);
                 for(i=0; i < l; i++) {
                     jl_value_t *prior_ti = jl_svecref(jl_cellref(t,i),0);
-                    if (jl_is_leaf_type(prior_ti) && jl_subtype(ti, prior_ti, 0)) {
+                    // in issue #13007 we incorrectly set skip=1 here, due to
+                    // Type{_<:T} ∩ (UnionAll S Type{T{S}}) = Type{T{S}}
+                    // Instead we should have computed the intersection as (UnionAll S Type{T{S}}),
+                    // which is a bigger type that would not have been a subtype of the prior
+                    // match (prior_ti). We simulate that for now by checking jl_has_typevars.
+                    if (jl_is_leaf_type(prior_ti) && !jl_has_typevars(ti) && !jl_has_typevars(prior_ti) &&
+                        jl_subtype(ti, prior_ti, 0)) {
                         skip = 1;
                         break;
                     }

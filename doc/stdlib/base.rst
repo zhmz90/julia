@@ -58,11 +58,11 @@ Getting Around
 
    The memory consumption estimate is an approximate lower bound on the size of the internal structure of the object.
 
-.. function:: Base.summarysize(obj, recurse) -> Int
+.. function:: Base.summarysize(obj; exclude=Union{Module,Function,DataType,TypeName}) -> Int
 
    .. Docstring generated from Julia source
 
-   ``summarysize`` is an estimate of the size of the object as if all iterables were allocated inline in general, this forms a conservative lower bound n the memory "controlled" by the object if recurse is ``true``\ , then simply reachable memory should also be included, otherwise, only directly used memory should be included you should never ignore recurse in cases where recursion is possible
+   Compute the amount of memory used by all unique objects reachable from the argument. Keyword argument ``exclude`` specifies a type of objects to exclude from the traversal.
 
 .. function:: edit(file::AbstractString, [line])
 
@@ -359,7 +359,7 @@ All Objects
 
       julia> convert(Int, 3.5)
       ERROR: InexactError()
-       in convert at int.jl:205
+       in convert at int.jl:209
 
    If ``T`` is a :obj:`AbstractFloat` or :obj:`Rational` type, then it will return
    the closest value to ``x`` representable by ``T``.
@@ -394,19 +394,15 @@ All Objects
 
    .. Docstring generated from Julia source
 
-   If the argument is a type, return a "larger" type (for numeric types, this will be
-   a type with at least as much range and precision as the argument, and usually more).
-   Otherwise the argument ``x`` is converted to ``widen(typeof(x))``.
+   If the argument is a type, return a "larger" type (for numeric types, this will be a type with at least as much range and precision as the argument, and usually more). Otherwise the argument ``x`` is converted to ``widen(typeof(x))``\ .
 
    .. doctest::
 
-      julia> widen(Int32)
-      Int64
+       julia> widen(Int32)
+       Int64
 
-   .. doctest::
-
-      julia> widen(1.5f0)
-      1.5
+       julia> widen(1.5f0)
+       1.5
 
 .. function:: identity(x)
 
@@ -477,11 +473,17 @@ Types
 
    Size, in bytes, of the canonical binary representation of the given DataType ``T``\ , if any.
 
-.. function:: eps([T])
+.. function:: eps(T)
 
    .. Docstring generated from Julia source
 
-   The distance between 1.0 and the next larger representable floating-point value of ``DataType`` ``T``\ . Only floating-point types are sensible arguments. If ``T`` is omitted, then ``eps(Float64)`` is returned.
+   The distance between 1.0 and the next larger representable floating-point value of ``DataType`` ``T``\ . Only floating-point types are sensible arguments.
+
+.. function:: eps()
+
+   .. Docstring generated from Julia source
+
+   The distance between 1.0 and the next larger representable floating-point value of ``Float64``\ .
 
 .. function:: eps(x)
 
@@ -517,27 +519,26 @@ Types
 
    .. Docstring generated from Julia source
 
-   The byte offset of each field of a type relative to the data start. For example, we could use it
-   in the following manner to summarize information about a struct type:
+   The byte offset of each field of a type relative to the data start. For example, we could use it in the following manner to summarize information about a struct type:
 
    .. doctest::
 
-      julia> structinfo(T) = [zip(fieldoffsets(T),fieldnames(T),T.types)...];
+       julia> structinfo(T) = [zip(fieldoffsets(T),fieldnames(T),T.types)...];
 
-      julia> structinfo(StatStruct)
-      12-element Array{Tuple{Int64,Symbol,DataType},1}:
-       (0,:device,UInt64)
-       (8,:inode,UInt64)
-       (16,:mode,UInt64)
-       (24,:nlink,Int64)
-       (32,:uid,UInt64)
-       (40,:gid,UInt64)
-       (48,:rdev,UInt64)
-       (56,:size,Int64)
-       (64,:blksize,Int64)
-       (72,:blocks,Int64)
-       (80,:mtime,Float64)
-       (88,:ctime,Float64)
+       julia> structinfo(StatStruct)
+       12-element Array{Tuple{Int64,Symbol,DataType},1}:
+        (0,:device,UInt64)
+        (8,:inode,UInt64)
+        (16,:mode,UInt64)
+        (24,:nlink,Int64)
+        (32,:uid,UInt64)
+        (40,:gid,UInt64)
+        (48,:rdev,UInt64)
+        (56,:size,Int64)
+        (64,:blksize,Int64)
+        (72,:blocks,Int64)
+        (80,:mtime,Float64)
+        (88,:ctime,Float64)
 
 .. function:: fieldtype(T, name::Symbol | index::Int)
 
@@ -556,15 +557,15 @@ Types
 
    .. Docstring generated from Julia source
 
-   Return ``true`` if ``T`` is a "plain data" type, meaning it is immutable and contains no references to other values. Typical examples are numeric types such as ``UInt8``, ``Float64``, and ``Complex{Float64}``.
+   Return ``true`` if ``T`` is a "plain data" type, meaning it is immutable and contains no references to other values. Typical examples are numeric types such as ``UInt8``\ , ``Float64``\ , and ``Complex{Float64}``\ .
 
    .. doctest::
 
-      julia> isbits(Complex{Float64})
-      true
+       julia> isbits(Complex{Float64})
+       true
 
-      julia> isbits(Complex)
-      false
+       julia> isbits(Complex)
+       false
 
 .. function:: isleaftype(T)
 
@@ -634,15 +635,15 @@ Generic Functions
 
    .. doctest::
 
-   	julia> function f(x, y)
-   	           x + y
-   	       end;
+       julia> function f(x, y)
+                  x + y
+              end;
 
-   	julia> applicable(f, 1)
-   	false
+       julia> applicable(f, 1)
+       false
 
-   	julia> applicable(f, 1, 2)
-   	true
+       julia> applicable(f, 1, 2)
+       true
 
 .. function:: invoke(f, (types...), args...)
 
@@ -658,8 +659,8 @@ Generic Functions
 
    .. doctest::
 
-      julia> [1:5;] |> x->x.^2 |> sum |> inv
-      0.01818181818181818
+       julia> [1:5;] |> x->x.^2 |> sum |> inv
+       0.01818181818181818
 
 .. function:: call(x, args...)
 
@@ -861,35 +862,24 @@ System
 
    .. Docstring generated from Julia source
 
-   Create a pipeline from a data source to a destination. The source and destination can
-   be commands, I/O streams, strings, or results of other ``pipeline`` calls. At least one
-   argument must be a command. Strings refer to filenames.
-   When called with more than two arguments, they are chained together from left to right.
-   For example ``pipeline(a,b,c)`` is equivalent to ``pipeline(pipeline(a,b),c)``. This provides a more
-   concise way to specify multi-stage pipelines.
+   Create a pipeline from a data source to a destination. The source and destination can be commands, I/O streams, strings, or results of other ``pipeline`` calls. At least one argument must be a command. Strings refer to filenames. When called with more than two arguments, they are chained together from left to right. For example ``pipeline(a,b,c)`` is equivalent to ``pipeline(pipeline(a,b),c)``\ . This provides a more concise way to specify multi-stage pipelines.
 
    **Examples**:
+
      * ``run(pipeline(`ls`, `grep xyz`))``
      * ``run(pipeline(`ls`, "out.txt"))``
      * ``run(pipeline("out.txt", `grep xyz`))``
-
 
 .. function:: pipeline(command; stdin, stdout, stderr, append=false)
 
    .. Docstring generated from Julia source
 
-   Redirect I/O to or from the given ``command``. Keyword arguments specify which of
-   the command's streams should be redirected. ``append`` controls whether file output
-   appends to the file.
-   This is a more general version of the 2-argument ``pipeline`` function.
-   ``pipeline(from, to)`` is equivalent to ``pipeline(from, stdout=to)`` when ``from`` is a
-   command, and to ``pipe(to, stdin=from)`` when ``from`` is another kind of
-   data source.
+   Redirect I/O to or from the given ``command``\ . Keyword arguments specify which of the command's streams should be redirected. ``append`` controls whether file output appends to the file. This is a more general version of the 2-argument ``pipeline`` function. ``pipeline(from, to)`` is equivalent to ``pipeline(from, stdout=to)`` when ``from`` is a command, and to ``pipe(to, stdin=from)`` when ``from`` is another kind of data source.
 
    **Examples**:
+
      * ``run(pipeline(`dothings`, stdout="out.txt", stderr="errs.txt"))``
      * ``run(pipeline(`update`, stdout="log.txt", append=true))``
-
 
 .. function:: gethostname() -> AbstractString
 

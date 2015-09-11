@@ -212,11 +212,39 @@ Constructors
 
    Create an array with the same data as the given array, but with different dimensions. An implementation for a particular type of array may choose whether the data is copied or shared.
 
-.. function:: similar(array, element_type, dims)
+.. function:: similar(array, [element_type=eltype(array)], [dims=size(array)])
 
    .. Docstring generated from Julia source
 
-   Create an uninitialized array of the same type as the given array, but with the specified element type and dimensions. The second and third arguments are both optional. The ``dims`` argument may be a tuple or a series of integer arguments. For some special ``AbstractArray`` objects which are not real containers (like ranges), this function returns a standard ``Array`` to allow operating on elements.
+   Create an uninitialized mutable array with the given element type and size, based upon the given source array. The second and third arguments are both optional, defaulting to the given array's ``eltype`` and ``size``\ . The dimensions may be specified either as a single tuple argument or as a series of integer arguments.
+
+   Custom AbstractArray subtypes may choose which specific array type is best-suited to return for the given element type and dimensionality. If they do not specialize this method, the default is an ``Array(element_type, dims...)``\ .
+
+   For example, ``similar(1:10, 1, 4)`` returns an uninitialized ``Array{Int,2}`` since ranges are neither mutable nor support 2 dimensions:
+
+   .. code-block:: julia
+
+       julia> similar(1:10, 1, 4)
+       1x4 Array{Int64,2}:
+        4419743872  4374413872  4419743888  0
+
+   Conversely, ``similar(trues(10,10), 2)`` returns an uninitialized ``BitVector`` with two elements since ``BitArray``\ s are both mutable and can support 1-dimensional arrays:
+
+   .. code-block:: julia
+
+       julia> similar(trues(10,10), 2)
+       2-element BitArray{1}:
+        false
+        false
+
+   Since ``BitArray``\ s can only store elements of type ``Bool``\ , however, if you request a different element type it will create a regular ``Array`` instead:
+
+   .. code-block:: julia
+
+       julia> similar(falses(10), Float64, 2, 4)
+       2x4 Array{Float64,2}:
+        2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
+        2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
 
 .. function:: reinterpret(type, A)
 
@@ -863,7 +891,7 @@ Sparse matrices support much of the same set of operations as dense matrices. Th
 
    .. Docstring generated from Julia source
 
-   Create a sparse matrix ``S`` of dimensions ``m x n`` such that ``S[I[k], J[k]] = V[k]``\ . The ``combine`` function is used to combine duplicates. If ``m`` and ``n`` are not specified, they are set to ``max(I)`` and ``max(J)`` respectively. If the ``combine`` function is not supplied, duplicates are added by default.
+   Create a sparse matrix ``S`` of dimensions ``m x n`` such that ``S[I[k], J[k]] = V[k]``\ . The ``combine`` function is used to combine duplicates. If ``m`` and ``n`` are not specified, they are set to ``maximum(I)`` and ``maximum(J)`` respectively. If the ``combine`` function is not supplied, duplicates are added by default. All elements of ``I`` must satisfy ``1 <= I[k] <= m``\ , and all elements of ``J`` must satisfy ``1 <= J[k] <= n``\ .
 
 .. function:: sparsevec(I, V, [m, combine])
 

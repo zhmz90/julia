@@ -79,6 +79,7 @@ let T = TypeVar(:T,true)
 
     testintersect(Tuple{Rational{T},T}, Tuple{Rational{Integer},Int}, Tuple{Rational{Integer},Int})
 
+    # issue #1631
     testintersect(Pair{T,Ptr{T}}, Pair{Ptr{S},S}, Bottom)
     testintersect(Tuple{T,Ptr{T}}, Tuple{Ptr{S},S}, Bottom)
 end
@@ -101,11 +102,11 @@ testintersect(Type{Any},Type{Complex}, Bottom)
 testintersect(Type{Any},Type{TypeVar(:T,Real)}, Bottom)
 @test !(Type{Array{Integer}} <: Type{AbstractArray{Integer}})
 @test !(Type{Array{Integer}} <: Type{Array{TypeVar(:T,Integer)}})
-testintersect(Type{Function},UnionType,Bottom)
+testintersect(Type{Function},Union,Bottom)
 testintersect(Type{Int32}, DataType, Type{Int32})
 @test !(Type <: TypeVar)
 testintersect(DataType, Type, Bottom, isnot)
-testintersect(UnionType, Type, Bottom, isnot)
+testintersect(Union, Type, Bottom, isnot)
 testintersect(DataType, Type{Int}, Bottom, isnot)
 testintersect(DataType, Type{TypeVar(:T,Int)}, Bottom, isnot)
 testintersect(DataType, Type{TypeVar(:T,Integer)}, Bottom, isnot)
@@ -142,11 +143,11 @@ end
 @test !issubtype(Array{Tuple{Int,Int}}, Array{NTuple})
 @test !issubtype(Type{Tuple{Void}}, Tuple{Type{Void}})
 
-# this is fancy: know that any type T<:Number must be either a DataType or a UnionType
-@test Type{TypeVar(:T,Number)} <: Union{DataType,UnionType}
+# this is fancy: know that any type T<:Number must be either a DataType or a Union
+@test Type{TypeVar(:T,Number)} <: Union{DataType,Union}
 @test !(Type{TypeVar(:T,Number)} <: DataType)
-@test !(Type{TypeVar(:T,Tuple)} <: Union{Tuple,UnionType})
-@test Type{TypeVar(:T,Tuple)} <: Union{DataType,UnionType}
+@test !(Type{TypeVar(:T,Tuple)} <: Union{Tuple,Union})
+@test Type{TypeVar(:T,Tuple)} <: Union{DataType,Union}
 
 # issue #2997
 let T = TypeVar(:T,Union{Float64,Array{Float64,1}},true)
@@ -822,7 +823,7 @@ let
     local baar, foor, boor
     # issue #1131
     baar(x::DataType) = 0
-    baar(x::UnionType) = 1
+    baar(x::Union) = 1
     baar(x::TypeConstructor) = 2
     @test baar(StridedArray) == 2
     @test baar(StridedArray.body) == 1
@@ -830,12 +831,12 @@ let
     @test baar(Vector.body) == 0
 
     boor(x) = 0
-    boor(x::UnionType) = 1
+    boor(x::Union) = 1
     @test boor(StridedArray) == 0
     @test boor(StridedArray.body) == 1
 
     # issue #1202
-    foor(x::UnionType) = 1
+    foor(x::Union) = 1
     @test_throws MethodError foor(StridedArray)
     @test foor(StridedArray.body) == 1
     @test_throws MethodError foor(StridedArray)
@@ -3043,6 +3044,15 @@ let a = UInt8[1, 107, 66, 88, 2, 99, 254, 13, 0, 0, 0, 0]
     f11813(p) = (Int8(1),(Int8(2),Int32(3))) === unsafe_load(convert(Ptr{Tuple{Int8,Tuple{Int8,Int32}}},p))
     @test f11813(p) === true # redundant comparison test seems to make this test more reliable, don't remove
 end
+# issue #13037
+let a = UInt8[0, 0, 0, 0, 0x66, 99, 254, 13, 0, 0, 0, 0]
+    u32 = UInt32[0x3]
+    a[1:4] = reinterpret(UInt8, u32)
+    p = pointer(a)
+    @test ((Int32(3),UInt8(0x66)),Int32(0)) === unsafe_load(convert(Ptr{Tuple{Tuple{Int32,UInt8},Int32}},p))
+    f11813(p) = ((Int32(3),UInt8(0x66)),Int32(0)) === unsafe_load(convert(Ptr{Tuple{Tuple{Int32,UInt8},Int32}},p))
+    @test f11813(p) === true # redundant comparison test seems to make this test more reliable, don't remove
+end
 let a = (1:1000...),
     b = (1:1000...)
     @test a == b
@@ -3147,12 +3157,6 @@ f12092(x::Int, y) = 0
 f12092(x::Int,) = 1
 f12092(x::Int, y::Int...) = 2
 @test f12092(1) == 1
-
-# issue #12096
-let a = Val{Val{TypeVar(:_,Int,true)}}
-    @test_throws UndefRefError a.instance
-    @test !isleaftype(a)
-end
 
 # PR #12058
 let N = TypeVar(:N,true)
@@ -3259,7 +3263,7 @@ Base.return_types(getindex, (Vector{nothing},))
 module MyColors
 
 abstract Paint{T}
-immutable RGB{T<:FloatingPoint} <: Paint{T}
+immutable RGB{T<:AbstractFloat} <: Paint{T}
     r::T
     g::T
     b::T
@@ -3301,3 +3305,20 @@ code_typed(A12612.f2, Tuple{})
 # issue #12826
 f12826{I<:Integer}(v::Vector{I}) = v[1]
 @test Base.return_types(f12826,Tuple{Array{TypeVar(:I, Integer),1}})[1] == Integer
+
+# issue #13007
+call13007{T,N}(::Type{Array{T,N}}) = 0
+call13007(::Type{Array}) = 1
+@test length(Base._methods(call13007, Tuple{Type{TypeVar(:_,Array)}}, 4)) == 2
+
+# detecting cycles during type intersection, e.g. #1631
+cycle_in_solve_tvar_constraints{S}(::Type{Nullable{S}}, x::S) = 0
+cycle_in_solve_tvar_constraints{T}(::Type{T}, x::Val{T}) = 1
+@test length(methods(cycle_in_solve_tvar_constraints)) == 2
+
+# issue #12967
+foo12967(x, ::ANY) = 1
+typealias TupleType12967{T<:Tuple} Type{T}
+foo12967(x, ::TupleType12967) = 2
+@test foo12967(1, Int) == 1
+@test foo12967(1, Tuple{}) == 2
