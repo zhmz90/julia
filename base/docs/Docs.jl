@@ -148,18 +148,18 @@ function doc(b::Binding)
         v = getfield(b.mod,b.var)
         d = doc(v)
         if d === nothing
-            if isa(v,Function)
-                d = catdoc(Markdown.parse("""
-                No documentation found.
-
-                `$(b.mod === Main ? b.var : join((b.mod, b.var),'.'))` is $(isgeneric(v) ? "a generic" : "an anonymous") `Function`.
-                """), functionsummary(v))
-            elseif startswith(string(b.var),'@')
+            if startswith(string(b.var),'@')
                 # check to see if the binding var is a macro
                 d = catdoc(Markdown.parse("""
                 No documentation found.
 
                 """), macrosummary(b.var, v))
+            elseif isa(v,Function)
+                d = catdoc(Markdown.parse("""
+                No documentation found.
+
+                `$(b.mod === Main ? b.var : join((b.mod, b.var),'.'))` is $(isgeneric(v) ? "a generic" : "an anonymous") `Function`.
+                """), functionsummary(v))
             else
                 T = typeof(v)
                 d = catdoc(Markdown.parse("""
@@ -238,26 +238,29 @@ doc(f::Function) = doc(f, Tuple)
 
 function doc(f::Function, sig::Type)
     isgeneric(f) && isempty(methods(f,sig)) && return nothing
+    results, funcdocs = [], []
     for mod in modules
-        if (haskey(meta(mod),f) && isa(meta(mod)[f],FuncDoc))
+        if (haskey(meta(mod), f) && isa(meta(mod)[f], FuncDoc))
             fd = meta(mod)[f]
-            results = []
+            push!(funcdocs, fd)
             for msig in fd.order
                 # try to find specific matching method signatures
                 if sig <: msig
-                    push!(results, (msig,fd.meta[msig]))
+                    push!(results, (msig, fd.meta[msig]))
                 end
-            end
-            # if all method signatures are Union{} ( ⊥ ), concat all docstrings
-            if isempty(results)
-                return catdoc([fd.meta[msig] for msig in reverse(fd.order)]...)
-            else
-                sort!(results, lt=(a,b)->type_morespecific(first(a),first(b)))
-                return catdoc([last(r) for r in results]...)
             end
         end
     end
-    return nothing
+    # if all method signatures are Union{} ( ⊥ ), concat all docstrings
+    if isempty(results)
+        for fd in funcdocs
+            append!(results, [fd.meta[msig] for msig in reverse(fd.order)])
+        end
+    else
+        sort!(results, lt = (a, b) -> type_morespecific(first(a), first(b)))
+        results = [last(r) for r in results]
+    end
+    catdoc(results...)
 end
 doc(f::Function,args::Any...) = doc(f, Tuple{args...})
 
@@ -274,7 +277,7 @@ isdoc(x) = isexpr(x, :string, AbstractString) ||
     (isexpr(x, :macrocall) && x.args[1] == symbol("@doc_str")) ||
     (isexpr(x, :call) && x.args[1] == Expr(:., Base.Markdown, QuoteNode(:doc_str)))
 
-dict_expr(d) = :(Dict($([:($(Expr(:quote, f)) => $d) for (f, d) in d]...)))
+dict_expr(d) = :(Dict($([:(Pair($(Expr(:quote, f)), $d)) for (f, d) in d]...)))
 
 function field_meta(def)
     meta = Dict()
@@ -462,9 +465,18 @@ end
 
 function moddoc(meta, def, name)
     docex = :(@doc $meta $name)
-    def == nothing && return :(eval($name, $(quot(docex)))) |> esc
-    push!(unblock(def).args[3].args, docex)
-    return esc(Expr(:toplevel, def))
+    if def == nothing
+        esc(:(eval($name, $(quot(docex)))))
+    else
+        def = unblock(def)
+        block = def.args[3].args
+        if !def.args[1]
+            isempty(block) && error("empty baremodules are not documentable.")
+            insert!(block, 2, :(import Base: call, @doc))
+        end
+        push!(block, docex)
+        esc(Expr(:toplevel, def))
+    end
 end
 
 function objdoc(meta, def)
