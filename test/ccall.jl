@@ -2,7 +2,7 @@
 
 import Base.copy, Base.==
 const verbose = false
-const libccalltest = joinpath(dirname(@__FILE__), "libccalltest")
+const libccalltest = "libccalltest"
 ccall((:set_verbose, libccalltest), Void, (Int32,), verbose)
 
 # Test for proper argument register truncation
@@ -73,7 +73,7 @@ b = unsafe_load(ccall((:cfptest, libccalltest), Ptr{Complex64}, (Ptr{Complex64},
 
 # Tests for native Julia data types
 @test_throws MethodError ccall((:cptest, libccalltest), Ptr{Complex{Int}}, (Ptr{Complex{Int}},), cf32)
-@test_throws ErrorException ccall((:cptest, libccalltest), Ptr{Complex{Int}}, (Complex{Int},), &cf32) #compile-time error
+@test_throws MethodError ccall((:cptest, libccalltest), Ptr{Complex{Int}}, (Complex{Int},), &cf32)
 
 # Tests for various sized data types (ByVal)
 type Struct1
