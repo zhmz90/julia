@@ -754,6 +754,15 @@ static void maybe_alloc_arrayvar(jl_sym_t *s, jl_codectx_t *ctx)
     }
 }
 
+// Snooping on which functions are being compiled, and how long it takes
+JL_STREAM *dump_compiles_stream = NULL;
+uint64_t last_time = 0;
+extern "C" DLLEXPORT
+void jl_dump_compiles(void *s)
+{
+    dump_compiles_stream = (JL_STREAM*)s;
+}
+
 // --- entry point ---
 //static int n_emit=0;
 static Function *emit_function(jl_lambda_info_t *lam);
@@ -765,6 +774,8 @@ static Function *to_function(jl_lambda_info_t *li)
     BasicBlock *old = nested_compile ? builder.GetInsertBlock() : NULL;
     DebugLoc olddl = builder.getCurrentDebugLocation();
     bool last_n_c = nested_compile;
+    if (!nested_compile && dump_compiles_stream != NULL)
+        last_time = jl_hrtime();
     nested_compile = true;
     jl_gc_inhibit_finalizers(nested_compile);
     Function *f = NULL;
@@ -818,6 +829,13 @@ static Function *to_function(jl_lambda_info_t *li)
     nested_compile = last_n_c;
     jl_gc_inhibit_finalizers(nested_compile);
     JL_SIGATOMIC_END();
+    if (dump_compiles_stream != NULL) {
+        uint64_t this_time = jl_hrtime();
+        jl_printf(dump_compiles_stream, "%llu\t\"", (unsigned long long)(this_time-last_time));
+        jl_static_show(dump_compiles_stream, (jl_value_t*)li);
+        jl_printf(dump_compiles_stream, "\"\n");
+        last_time = this_time;
+    }
     return f;
 }
 
@@ -5976,6 +5994,9 @@ extern "C" void jl_init_codegen(void)
             );
     delete targetMachine;
     assert(jl_TargetMachine);
+#ifdef USE_MCJIT
+    jl_TargetMachine->setFastISel(true);
+#endif
 #if defined(LLVM38)
     engine_module->setDataLayout(jl_TargetMachine->createDataLayout());
 #elif defined(LLVM36) && !defined(LLVM37)
