@@ -57,7 +57,7 @@ function.
 include("bindings.jl")
 
 import Base.Markdown: @doc_str, MD
-import Base.Meta: quot
+import Base.Meta: quot, isexpr
 
 export doc
 
@@ -247,7 +247,9 @@ catdoc(xs...) = vcat(xs...)
 
 # Type Documentation
 
-isdoc(x) = isexpr(x, :string, AbstractString) ||
+isdoc(s::AbstractString) = true
+
+isdoc(x) = isexpr(x, :string) ||
     (isexpr(x, :macrocall) && x.args[1] == symbol("@doc_str")) ||
     (isexpr(x, :call) && x.args[1] == Expr(:., Base.Markdown, QuoteNode(:doc_str)))
 
@@ -259,7 +261,7 @@ function field_meta(def)
     for l in def.args[3].args
         if isdoc(l)
             doc = mdify(l)
-        elseif doc !== nothing && isexpr(l, Symbol, :(::))
+        elseif doc !== nothing && (isa(l, Symbol) || isexpr(l, :(::)))
             meta[namify(l)] = doc
             doc = nothing
         end
@@ -326,7 +328,7 @@ end
 doc(f::Base.Callable, args::Any...) = doc(f, Tuple{args...})
 
 function typesummary(T::DataType)
-    parts = [
+    parts = UTF8String[
     """
     **Summary:**
     ```julia
@@ -358,8 +360,8 @@ function typesummary(T::DataType)
 end
 
 isfield(x) = isexpr(x, :.) &&
-  (isexpr(x.args[1], Symbol) || isfield(x.args[1])) &&
-  isexpr(x.args[2], QuoteNode, :quote)
+  (isa(x.args[1], Symbol) || isfield(x.args[1])) &&
+  (isa(x.args[2], QuoteNode) || isexpr(x.args[2], :quote))
 
 function fielddoc(T, k)
     for mod in modules
@@ -390,11 +392,6 @@ const keywords = Dict{Symbol,Any}()
 
 # Usage macros
 
-isexpr(x::Expr) = true
-isexpr(x) = false
-isexpr(x::Expr, ts...) = x.head in ts
-isexpr(x, ts...) = any(T->isa(T, Type) && isa(x, T), ts)
-
 function unblock(ex)
     isexpr(ex, :block) || return ex
     exs = filter(ex -> !(isa(ex, LineNumberNode) || isexpr(ex, :line)), ex.args)
@@ -409,7 +406,7 @@ namify(ex::QuoteNode) = ex.value
 namify(sy::Symbol) = sy
 
 function mdify(ex)
-    if isexpr(ex, AbstractString, :string)
+    if isa(ex, AbstractString) || isexpr(ex, :string)
         :(Markdown.doc_str($(esc(ex)), @__FILE__, current_module()))
     else
         esc(ex)
@@ -477,9 +474,49 @@ end
 
 multidoc(meta, objs) = quote $([:(@doc $(esc(meta)) $(esc(obj))) for obj in objs]...) end
 
-fexpr(ex) = isexpr(ex, :function, :stagedfunction, :(=)) && isexpr(ex.args[1], :call)
+doc"""
+    @__doc__(ex)
+
+Low-level macro used to mark expressions returned by a macro that should be documented. If
+more than one expression is marked then the same docstring is applied to each expression.
+
+    macro example(f)
+        quote
+            $(f)() = 0
+            @__doc__ $(f)(x) = 1
+            $(f)(x, y) = 2
+        end |> esc
+    end
+
+`@__doc__` has no effect when a macro that uses it is not documented.
+"""
+:(Base.@__doc__)
+
+function __doc__!(meta, def::Expr)
+    if isexpr(def, :block, 2) && def.args[1] == symbol("#doc#")
+        # Convert `Expr(:block, :#doc#, ...)` created by `@__doc__` to an `@doc`.
+        def.head = :macrocall
+        def.args = [symbol("@doc"), meta, def.args[end]]
+        true
+    else
+        found = false
+        for each in def.args
+            found |= __doc__!(meta, each)
+        end
+        found
+    end
+end
+__doc__!(meta, def) = false
+
+fexpr(ex) = isexpr(ex, [:function, :stagedfunction, :(=)]) && isexpr(ex.args[1], :call)
 
 function docm(meta, def, define = true)
+
+    err = (
+        "invalid doc expression:", def, isexpr(def, :macrocall) ?
+        "'$(def.args[1])' is not documentable. See 'help?> Base.@__doc__' for details." : ""
+    )
+
     def′ = unblock(def)
 
     isexpr(def′, :quote) && isexpr(def′.args[1], :macrocall) &&
@@ -499,11 +536,12 @@ function docm(meta, def, define = true)
     isexpr(def′, :bitstype)    ? namedoc(meta, def, namify(def′.args[2])) :
     isexpr(def′, :typealias)   ?  vardoc(meta, def, namify(def′)) :
     isexpr(def′, :module)      ?  moddoc(meta, def, def′.args[2]) :
-    isexpr(def′, :(=), :const,
-                 :global)      ?  vardoc(meta, def, namify(def′)) :
+    isexpr(def′, [:(=), :const,
+                 :global])     ?  vardoc(meta, def, namify(def′)) :
     isvar(def′)                ? objdoc(meta, def′) :
     isexpr(def′, :tuple)       ? multidoc(meta, def′.args) :
-    isa(def′, Expr)            ? error("invalid doc expression $def′") :
+    __doc__!(meta, def′)       ? esc(def′) :
+    isa(def′, Expr)            ? error(strip(join(err, "\n\n"))) :
     objdoc(meta, def′)
 end
 

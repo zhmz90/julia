@@ -273,6 +273,9 @@ importall .QuadGK
 include("fastmath.jl")
 importall .FastMath
 
+# libgit2 support
+include("libgit2.jl")
+
 # package manager
 include("pkg.jl")
 const Git = Pkg.Git

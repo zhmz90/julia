@@ -306,7 +306,7 @@ All Objects
 
    Get a unique integer id for ``x``\ . ``object_id(x)==object_id(y)`` if and only if ``is(x,y)``\ .
 
-.. function:: hash(x[, h])
+.. function:: hash(x[, h::UInt])
 
    .. Docstring generated from Julia source
 
@@ -893,11 +893,12 @@ System
 
    Get the local machine's host name.
 
-.. function:: getipaddr() -> AbstractString
+.. function:: getipaddr() -> IPAddr
 
    .. Docstring generated from Julia source
 
-   Get the IP address of the local machine, as a string of the form "x.x.x.x".
+   Get the IP address of the local machine.
+
 
 .. function:: getpid() -> Int32
 

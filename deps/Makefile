@@ -424,6 +424,10 @@ else
 LLVM_FLAGS += --disable-threads
 endif # USE_INTEL_JITEVENTS
 
+ifeq ($(USE_OPROFILE_JITEVENTS), 1)
+LLVM_FLAGS += --with-oprofile=/usr/
+endif # USE_OPROFILE_JITEVENTS
+
 ifeq ($(BUILD_LLDB),1)
 ifeq ($(USECLANG),1)
 LLVM_FLAGS += --enable-cxx11
@@ -1055,10 +1059,10 @@ install-objconv: $(OBJCONV_TARGET)
 # LAPACK is built into OpenBLAS by default
 OPENBLAS_GIT_URL := git://github.com/xianyi/OpenBLAS.git
 OPENBLAS_TAR_URL = https://api.github.com/repos/xianyi/OpenBLAS/tarball/$1
-$(eval $(call git-external,openblas,OPENBLAS,Makefile,libopenblas.$(SHLIB_EXT),$(BUILDDIR)))
+$(eval $(call git-external,openblas,OPENBLAS,Makefile,$(LIBBLASNAME).$(SHLIB_EXT),$(BUILDDIR)))
 
-OPENBLAS_OBJ_SOURCE := $(BUILDDIR)/$(OPENBLAS_SRC_DIR)/libopenblas.$(SHLIB_EXT)
-OPENBLAS_OBJ_TARGET := $(build_shlibdir)/libopenblas.$(SHLIB_EXT)
+OPENBLAS_OBJ_SOURCE := $(BUILDDIR)/$(OPENBLAS_SRC_DIR)/$(LIBBLASNAME).$(SHLIB_EXT)
+OPENBLAS_OBJ_TARGET := $(build_shlibdir)/$(LIBBLASNAME).$(SHLIB_EXT)
 OPENBLAS_BUILD_OPTS := CC="$(CC)" FC="$(FC)" RANLIB="$(RANLIB)" FFLAGS="$(FFLAGS) $(JFFLAGS)" TARGET=$(OPENBLAS_TARGET_ARCH) BINARY=$(BINARY)
 
 # Thread support
@@ -1094,7 +1098,7 @@ endif
 
 # 64-bit BLAS interface
 ifeq ($(USE_BLAS64), 1)
-OPENBLAS_BUILD_OPTS += INTERFACE64=1 SYMBOLSUFFIX="$(OPENBLAS_SYMBOLSUFFIX)"
+OPENBLAS_BUILD_OPTS += INTERFACE64=1 SYMBOLSUFFIX="$(OPENBLAS_SYMBOLSUFFIX)" LIBPREFIX="$(LIBBLASNAME)"
 ifeq ($(OS), Darwin)
 OPENBLAS_BUILD_OPTS += OBJCONV=$(abspath $(BUILDDIR)/objconv/objconv)
 $(OPENBLAS_OBJ_SOURCE): $(OBJCONV_SOURCE)
@@ -1131,13 +1135,15 @@ $(OPENBLAS_OBJ_SOURCE): $(BUILDDIR)/$(OPENBLAS_SRC_DIR)/config.status
 	echo $(MAKE) -C $(dir $<) $(OPENBLAS_BUILD_OPTS) # echo first, so we only print the error message below in a failure case
 	@$(MAKE) -C $(dir $<) $(OPENBLAS_BUILD_OPTS) || (echo $(WARNCOLOR)"*** Clean the OpenBLAS build with 'make -C deps clean-openblas'. Rebuild with 'make OPENBLAS_USE_THREAD=0 if OpenBLAS had trouble linking libpthread.so, and with 'make OPENBLAS_TARGET_ARCH=NEHALEM' if there were errors building SandyBridge support. Both these options can also be used simultaneously. ***"$(ENDCOLOR) && false)
 	touch -c $@
+ifneq ($(USE_SYSTEM_BLAS),1)
 $(OPENBLAS_OBJ_TARGET): $(OPENBLAS_OBJ_SOURCE) | $(build_shlibdir)
 	cp -f $< $@
 ifeq ($(OS), Linux)
 	cd $(dir $@) && \
-	ln -sf libopenblas.$(SHLIB_EXT) libopenblas.$(SHLIB_EXT).0
+	ln -sf $(LIBBLASNAME).$(SHLIB_EXT) $(LIBBLASNAME).$(SHLIB_EXT).0
 endif
-	$(INSTALL_NAME_CMD)libopenblas.$(SHLIB_EXT) $@
+	$(INSTALL_NAME_CMD)$(LIBBLASNAME).$(SHLIB_EXT) $@
+endif
 
 clean-openblas:
 	-$(MAKE) -C $(BUILDDIR)/$(OPENBLAS_SRC_DIR) clean
@@ -1902,7 +1908,7 @@ $(SRCDIR)/srccache/patchelf-$(PATCHELF_VER)/configure: $(SRCDIR)/srccache/patche
 	cd $(dir $<) && $(TAR) zxf $<
 	touch -c $@
 $(BUILDDIR)/patchelf-$(PATCHELF_VER)/config.status: $(SRCDIR)/srccache/patchelf-$(PATCHELF_VER)/configure
-	mkdir $(dir $@)
+	mkdir -p $(dir $@)
 	cd $(dir $@) && \
 	$< $(CONFIGURE_COMMON)
 	touch -c $@
@@ -2012,7 +2018,7 @@ LIBGIT2_OBJ_TARGET := $(build_shlibdir)/libgit2.$(SHLIB_EXT)
 
 LIBGIT2_OPTS := $(CMAKE_COMMON) -DTHREADSAFE=ON
 ifeq ($(OS),WINNT)
-LIBGIT2_OPTS += -DWIN32=ON -DMINGW=ON -DUSE_SSH=OFF -DCMAKE_SYSTEM_NAME=Windows
+LIBGIT2_OPTS += -DWIN32=ON -DMINGW=ON -DUSE_SSH=OFF -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_BUILD_TYPE=RelWithDebInfo
 ifneq ($(ARCH),x86_64)
 LIBGIT2_OPTS += -DCMAKE_C_FLAGS="-mincoming-stack-boundary=2"
 endif
@@ -2022,9 +2028,12 @@ else
 LIBGIT2_OPTS += -DBUILD_CLAR=OFF -DCMAKE_RC_COMPILER=`which $(CROSS_COMPILE)windres` -DDLLTOOL=`which $(CROSS_COMPILE)dlltool`
 LIBGIT2_OPTS += -DCMAKE_FIND_ROOT_PATH=/usr/$(XC_HOST) -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
 endif
+else ifneq ($(OS), Darwin)
+LIBGIT2_OPTS += -DREQUIRE_OPENSSL=ON
 endif
 
 $(BUILDDIR)/$(LIBGIT2_SRC_DIR)/Makefile: $(SRCDIR)/srccache/$(LIBGIT2_SRC_DIR)/CMakeLists.txt
+	-cd $(SRCDIR)/srccache/$(LIBGIT2_SRC_DIR) && patch -p1 -f < $(SRCDIR)/libgit2-require-openssl.patch
 	mkdir -p $(dir $@)
 	cd $(dir $@) && \
 	$(CMAKE) $(dir $<) $(LIBGIT2_OPTS)

@@ -56,12 +56,15 @@ if [ "$ARCH" = x86_64 ]; then
   exc=seh
   echo "override MARCH = x86-64" >> Make.user
   echo 'USE_BLAS64 = 1' >> Make.user
+  echo 'LIBBLAS = -L$(JULIAHOME)/usr/bin -lopenblas64_' >> Make.user
+  echo 'LIBBLASNAME = libopenblas64_' >> Make.user
 else
   bits=32
   archsuffix=86
   exc=sjlj
-  echo "override MARCH = i686" >> Make.user
-  echo "override JULIA_CPU_TARGET = pentium4" >> Make.user
+  echo "override MARCH = pentium4" >> Make.user
+  echo 'LIBBLAS = -L$(JULIAHOME)/usr/bin -lopenblas' >> Make.user
+  echo 'LIBBLASNAME = libopenblas' >> Make.user
 fi
 
 # Set XC_HOST if in Cygwin or Linux
@@ -103,7 +106,7 @@ if ! [ -e julia-installer.exe ]; then
   echo "Extracting $f"
   $SEVENZIP x -y $f >> get-deps.log
 fi
-for i in bin/*.dll Git/bin/msys-1.0.dll Git/bin/msys-perl5_8.dll Git/bin/*.exe; do
+for i in bin/*.dll Git/usr/bin/*.dll Git/usr/bin/*.exe; do
   $SEVENZIP e -y julia-installer.exe "\$_OUTDIR/$i" \
     -ousr\\`dirname $i | sed -e 's|/julia||' -e 's|/|\\\\|g'` >> get-deps.log
 done
@@ -176,8 +179,6 @@ if [ -z "`which make 2>/dev/null`" ]; then
   fi
   $SEVENZIP x -y `basename $f.lzma` >> get-deps.log
   tar -xf `basename $f`
-  # msysgit has an ancient version of touch that fails with `touch -c nonexistent`
-  cp usr/Git/bin/echo.exe bin/touch.exe
   export PATH=$PWD/bin:$PATH
 fi
 
@@ -185,8 +186,6 @@ for lib in SUITESPARSE ARPACK BLAS LAPACK FFTW \
     GMP MPFR PCRE LIBUNWIND RMATH OPENSPECFUN; do
   echo "USE_SYSTEM_$lib = 1" >> Make.user
 done
-echo 'LIBBLAS = -L$(JULIAHOME)/usr/bin -lopenblas' >> Make.user
-echo 'LIBBLASNAME = libopenblas' >> Make.user
 echo 'override LIBLAPACK = $(LIBBLAS)' >> Make.user
 echo 'override LIBLAPACKNAME = $(LIBBLASNAME)' >> Make.user
 echo 'JULIA_SYSIMG_BUILD_FLAGS=--output-ji ../usr/lib/julia/sys.ji' >> Make.user

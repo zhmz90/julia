@@ -1150,8 +1150,6 @@ DLLEXPORT void NORETURN jl_too_many_args(const char *fname, int max);
 DLLEXPORT void NORETURN jl_type_error(const char *fname, jl_value_t *expected, jl_value_t *got);
 DLLEXPORT void NORETURN jl_type_error_rt(const char *fname, const char *context,
                                 jl_value_t *ty, jl_value_t *got);
-DLLEXPORT void NORETURN jl_type_error_rt_line(const char *fname, const char *context,
-                                     jl_value_t *ty, jl_value_t *got, int line);
 DLLEXPORT void NORETURN jl_undefined_var_error(jl_sym_t *var);
 DLLEXPORT void NORETURN jl_bounds_error(jl_value_t *v, jl_value_t *t);
 DLLEXPORT void NORETURN jl_bounds_error_v(jl_value_t *v, jl_value_t **idxs, size_t nidxs);
@@ -1405,7 +1403,6 @@ extern DLLEXPORT JL_THREAD jl_value_t *jl_exception_in_transit;
 DLLEXPORT jl_task_t *jl_new_task(jl_function_t *start, size_t ssize);
 DLLEXPORT jl_value_t *jl_switchto(jl_task_t *t, jl_value_t *arg);
 DLLEXPORT void NORETURN jl_throw(jl_value_t *e);
-DLLEXPORT void NORETURN jl_throw_with_superfluous_argument(jl_value_t *e, int);
 DLLEXPORT void NORETURN jl_rethrow(void);
 DLLEXPORT void NORETURN jl_rethrow_other(jl_value_t *e);
 
@@ -1497,10 +1494,6 @@ DLLEXPORT uv_tcp_t *jl_tcp_init(uv_loop_t *loop);
 DLLEXPORT int jl_tcp_bind(uv_tcp_t *handle, uint16_t port, uint32_t host, unsigned int flags);
 
 DLLEXPORT int jl_sizeof_ios_t(void);
-
-#ifdef _OS_WINDOWS_
-DLLEXPORT struct tm* localtime_r(const time_t *t, struct tm *tm);
-#endif
 
 DLLEXPORT jl_array_t *jl_takebuf_array(ios_t *s);
 DLLEXPORT jl_value_t *jl_takebuf_string(ios_t *s);

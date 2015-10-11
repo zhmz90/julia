@@ -1,3 +1,38 @@
+Julia v0.5.0 Release Notes
+==========================
+
+New language features
+---------------------
+
+Language changes
+----------------
+
+Command-line option changes
+---------------------------
+
+Compiler/Runtime improvements
+-----------------------------
+
+Library improvements
+--------------------
+
+  * The package system (`Pkg`) is now based on the `libgit2` library, rather
+    than running the `git` program, increasing performance (especially on
+    Windows) ([#11196]).
+
+  * The `Base.Test` module now has a `@testset` feature to bundle
+    tests together and delay throwing an error until the end ([#13062]).
+
+  * The functions `remotecall`, `remotecall_fetch`, and `remotecall_wait` now have the
+    function argument as the first argument to allow for do-block syntax ([#13338]).
+
+  * `cov` and `cor` don't use keyword arguments anymore and are therefore now type stable ([#13465]).
+
+  * New method for generic QR with column pivoting ([#13480]).
+
+Deprecated or removed
+---------------------
+
 Julia v0.4.0 Release Notes
 ==========================
 
@@ -54,7 +89,7 @@ New language features
   * Support for inter-task communication using `Channels` ([#12264]).
     See http://docs.julialang.org/en/latest/manual/parallel-computing/#channels for details.
 
-  * RemoteRefs now point to remote channels. The remote channels can be of length greater than 1.
+  * `RemoteRef`s now point to remote channels. The remote channels can be of length greater than 1.
     Default continues to be of length 1 ([#12385]).
     See http://docs.julialang.org/en/latest/manual/parallel-computing/#remoterefs-and-abstractchannels for details.
 
@@ -390,7 +425,7 @@ Library improvements
 
   * Other improvements
 
-    * You can now tab-complete Emoji characters via their [short names](http://www.emoji-cheat-sheet.com/), using `\:name:<tab>` ([#10709]).
+    * You can now tab-complete emoji via their [short names](http://www.emoji-cheat-sheet.com/), using `\:name:<tab>` ([#10709]).
 
     * `gc_enable` subsumes `gc_disable`, and also returns the previous GC state.
 
@@ -404,9 +439,9 @@ Library improvements
 
     * Added `recvfrom` to get source address of UDP packets ([#9418]).
 
-    * ClusterManager performance improvements ([#9309]) and support for changing transports([#9434]).
+    * `ClusterManager` performance improvements ([#9309]) and support for changing transports([#9434]).
 
-    * Added Base.get_process_title / Base.set_process_title ([#9957]).
+    * Added `Base.get_process_title` / `Base.set_process_title` ([#9957]).
 
     * `readavailable` now returns a byte vector instead of a string.
 
@@ -450,7 +485,7 @@ Deprecated or removed
      end
     ```
 
-  * indexing with Reals that are not subtypes of Integers (Rationals, AbstractFloat, etc.) has been deprecated ([#10458]).
+  * indexing with `Real`s that are not subtypes of `Integer` (`Rational`, `AbstractFloat`, etc.) has been deprecated ([#10458]).
 
   * `push!(A)` has been deprecated, use `append!` instead of splatting arguments to `push!` ([#10400]).
 
@@ -463,7 +498,7 @@ Deprecated or removed
   * The `Graphics` module has been removed from `Base` and is now a
     standalone package ([#10150], [#9862]).
 
-  * The `Woodbury` special matrix type has been removed from LinAlg ([#10024]).
+  * The `Woodbury` special matrix type has been removed from `LinAlg` ([#10024]).
 
   * `median` and `median!` no longer accept a `checknan` keyword argument ([#8605]).
 
@@ -1604,6 +1639,7 @@ Too numerous to mention.
 [#11105]: https://github.com/JuliaLang/julia/issues/11105
 [#11145]: https://github.com/JuliaLang/julia/issues/11145
 [#11171]: https://github.com/JuliaLang/julia/issues/11171
+[#11196]: https://github.com/JuliaLang/julia/issues/11196
 [#11241]: https://github.com/JuliaLang/julia/issues/11241
 [#11279]: https://github.com/JuliaLang/julia/issues/11279
 [#11347]: https://github.com/JuliaLang/julia/issues/11347
@@ -1615,6 +1651,7 @@ Too numerous to mention.
 [#11849]: https://github.com/JuliaLang/julia/issues/11849
 [#11891]: https://github.com/JuliaLang/julia/issues/11891
 [#11922]: https://github.com/JuliaLang/julia/issues/11922
+[#11947]: https://github.com/JuliaLang/julia/issues/11947
 [#11985]: https://github.com/JuliaLang/julia/issues/11985
 [#12025]: https://github.com/JuliaLang/julia/issues/12025
 [#12031]: https://github.com/JuliaLang/julia/issues/12031
@@ -1631,3 +1668,5 @@ Too numerous to mention.
 [#12576]: https://github.com/JuliaLang/julia/issues/12576
 [#12727]: https://github.com/JuliaLang/julia/issues/12727
 [#12739]: https://github.com/JuliaLang/julia/issues/12739
+[#13062]: https://github.com/JuliaLang/julia/issues/13062
+[#13338]: https://github.com/JuliaLang/julia/issues/13338

@@ -73,7 +73,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    ======================= ========================= ========================================
    Type of input ``A``     Type of output ``F``      Relationship between ``F`` and ``A``
-   ----------------------- ------------------------- ----------------------------------------
+   ======================= ========================= ========================================
    :func:`Matrix`           ``LU``                   ``F[:L]*F[:U] == A[F[:p], :]``
    :func:`Tridiagonal`      ``LU{T,Tridiagonal{T}}`` ``F[:L]*F[:U] == A[F[:p], :]``
    :func:`SparseMatrixCSC`  ``UmfpackLU``            ``F[:L]*F[:U] == (F[:Rs] .* A)[F[:p], F[:q]]``
@@ -83,7 +83,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    =========== ======================================= ====== ======================== =============
    Component   Description                             ``LU`` ``LU{T,Tridiagonal{T}}`` ``UmfpackLU``
-   ----------- --------------------------------------- ------ ------------------------ -------------
+   =========== ======================================= ====== ======================== =============
    ``F[:L]``   ``L`` (lower triangular) part of ``LU``    ✓            ✓                        ✓
    ``F[:U]``   ``U`` (upper triangular) part of ``LU``    ✓            ✓                        ✓
    ``F[:p]``   (right) permutation ``Vector``             ✓            ✓                        ✓
@@ -95,7 +95,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    ================== ====== ======================== =============
    Supported function ``LU`` ``LU{T,Tridiagonal{T}}`` ``UmfpackLU``
-   ------------------ ------ ------------------------ -------------
+   ================== ====== ======================== =============
         ``/``            ✓
         ``\``            ✓                       ✓             ✓
         ``cond``         ✓                                     ✓
@@ -175,7 +175,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    ================ ================= ============== =====================================
    Return type      ``eltype(A)``     ``pivot``      Relationship between ``F`` and ``A``
-   ---------------- ----------------- -------------- -------------------------------------
+   ================ ================= ============== =====================================
    ``QR``           not ``BlasFloat`` either          ``A==F[:Q]*F[:R]``
    ``QRCompactWY``  ``BlasFloat``     ``Val{false}``  ``A==F[:Q]*F[:R]``
    ``QRPivoted``    ``BlasFloat``     ``Val{true}``   ``A[:,F[:p]]==F[:Q]*F[:R]``
@@ -187,7 +187,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    =========== ============================================= ================== ===================== ==================
    Component   Description                                   ``QR``             ``QRCompactWY``       ``QRPivoted``
-   ----------- --------------------------------------------- ------------------ --------------------- ------------------
+   =========== ============================================= ================== ===================== ==================
    ``F[:Q]``   ``Q`` (orthogonal/unitary) part of ``QR``      ✓ (``QRPackedQ``)  ✓ (``QRCompactWYQ``)  ✓ (``QRPackedQ``)
    ``F[:R]``   ``R`` (upper right triangular) part of ``QR``  ✓                  ✓                     ✓
    ``F[:p]``   pivot ``Vector``                                                                        ✓
@@ -928,12 +928,13 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    The following keyword arguments are supported:
     * ``nev``: Number of eigenvalues
     * ``ncv``: Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n`` for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the size of the input matrix ``A``. The default is ``ncv = max(20,2*nev+1)``.
+
       Note that these restrictions limit the input matrix ``A`` to be of dimension at least 2.
     * ``which``: type of eigenvalues to compute. See the note below.
 
       ========= ======================================================================================================================
       ``which`` type of eigenvalues
-      --------- ----------------------------------------------------------------------------------------------------------------------
+      ========= ======================================================================================================================
       ``:LM``   eigenvalues of largest magnitude (default)
       ``:SM``   eigenvalues of smallest magnitude
       ``:LR``   eigenvalues of largest real part
@@ -955,7 +956,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
       =============== ================================== ==================================
       ``sigma``       iteration mode                     ``which`` refers to eigenvalues of
-      --------------- ---------------------------------- ----------------------------------
+      =============== ================================== ==================================
       ``nothing``     ordinary (forward)                 :math:`A`
       real or complex inverse with level shift ``sigma`` :math:`(A - \sigma I )^{-1}`
       =============== ================================== ==================================
@@ -970,12 +971,13 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    The following keyword arguments are supported:
     * ``nev``: Number of eigenvalues
     * ``ncv``: Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n`` for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the size of the input matrices ``A`` and ``B``. The default is ``ncv = max(20,2*nev+1)``.
+
       Note that these restrictions limit the input matrix ``A`` to be of dimension at least 2.
     * ``which``: type of eigenvalues to compute. See the note below.
 
       ========= ======================================================================================================================
       ``which`` type of eigenvalues
-      --------- ----------------------------------------------------------------------------------------------------------------------
+      ========= ======================================================================================================================
       ``:LM``   eigenvalues of largest magnitude (default)
       ``:SM``   eigenvalues of smallest magnitude
       ``:LR``   eigenvalues of largest real part
@@ -997,7 +999,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
       =============== ================================== ==================================
       ``sigma``       iteration mode                     ``which`` refers to the problem
-      --------------- ---------------------------------- ----------------------------------
+      =============== ================================== ==================================
       ``nothing``     ordinary (forward)                 :math:`Av = Bv\lambda`
       real or complex inverse with level shift ``sigma`` :math:`(A - \sigma B )^{-1}B = v\nu`
       =============== ================================== ==================================
@@ -1308,7 +1310,7 @@ Usually a function has 4 methods defined, one each for ``Float64``,
    An object of type ``UniformScaling``, representing an identity matrix of any size.
 
 LAPACK Functions
---------------
+----------------
 
 .. module:: Base.LinAlg.LAPACK
 

@@ -1557,14 +1557,15 @@ void jl_compile_all_defs(jl_function_t *gf)
                 continue;
             }
         }
-        if (m->func->linfo->unspecialized == NULL) {
+        func = m->func->linfo->unspecialized;
+        if (func == NULL) {
             func = jl_instantiate_method(m->func, jl_emptysvec);
             if (func->env != (jl_value_t*)jl_emptysvec)
                 func->env = NULL;
             m->func->linfo->unspecialized = func;
             jl_gc_wb(m->func->linfo, func);
-            precompile_unspecialized(func, m->sig, m->tvars);
         }
+        precompile_unspecialized(func, m->sig, m->tvars);
         m = m->next;
     }
     JL_GC_POP();
@@ -1617,6 +1618,7 @@ void jl_compile_all(void)
     htable_t h;
     htable_new(&h, 0);
     _compile_all(jl_main_module, &h);
+    htable_free(&h);
 }
 
 DLLEXPORT void jl_compile_hint(jl_function_t *f, jl_tupletype_t *types)
