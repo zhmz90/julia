@@ -10,7 +10,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#ifndef _OS_WINDOWS_
+#ifdef _OS_WINDOWS_
+#include <psapi.h>
+#else
 #include <sys/sysctl.h>
 #include <sys/wait.h>
 #include <sys/ptrace.h>
@@ -21,6 +23,13 @@
 #include <errno.h>
 #include <signal.h>
 #include <fcntl.h>
+
+#ifndef _OS_WINDOWS_
+// for getrusage
+#include <sys/types.h>
+#include <sys/time.h>
+#include <sys/resource.h>
+#endif
 
 #ifdef __APPLE__
 #include <mach-o/dyld.h>
@@ -301,9 +310,13 @@ static void NORETURN throw_eof_error(void)
 DLLEXPORT uint64_t jl_ios_get_nbyte_int(ios_t *s, const size_t n)
 {
     assert(n <= 8);
-    size_t ret = ios_readprep(s, n);
-    if (ret < n)
-        throw_eof_error();
+    size_t space, ret;
+    do {
+        space = s->size - s->bpos;
+        ret = ios_readprep(s, n);
+        if (space == ret && ret < n)
+            throw_eof_error();
+    } while(ret < n);
     uint64_t x = 0;
     uint8_t *buf = (uint8_t*)&s->buf[s->bpos];
     if (n == 8) {
@@ -540,14 +553,12 @@ DLLEXPORT int32_t jl_set_zero_subnormals(int8_t isZero)
 DLLEXPORT void jl_native_alignment(uint_t *int8align, uint_t *int16align, uint_t *int32align,
                                    uint_t *int64align, uint_t *float32align, uint_t *float64align)
 {
-    LLVMTargetDataRef tgtdata = LLVMCreateTargetData("");
-    *int8align = LLVMPreferredAlignmentOfType(tgtdata, LLVMInt8Type());
-    *int16align = LLVMPreferredAlignmentOfType(tgtdata, LLVMInt16Type());
-    *int32align = LLVMPreferredAlignmentOfType(tgtdata, LLVMInt32Type());
-    *int64align = LLVMPreferredAlignmentOfType(tgtdata, LLVMInt64Type());
-    *float32align = LLVMPreferredAlignmentOfType(tgtdata, LLVMFloatType());
-    *float64align = LLVMPreferredAlignmentOfType(tgtdata, LLVMDoubleType());
-    LLVMDisposeTargetData(tgtdata);
+    *int8align = __alignof(uint8_t);
+    *int16align = __alignof(uint16_t);
+    *int32align = __alignof(uint32_t);
+    *int64align = __alignof(uint64_t);
+    *float32align = __alignof(float);
+    *float64align = __alignof(double);
 }
 
 DLLEXPORT jl_value_t *jl_is_char_signed()
@@ -741,6 +752,30 @@ DLLEXPORT jl_sym_t* jl_get_ARCH()
         ARCH = (jl_sym_t*) jl_get_global(jl_base_module, jl_symbol("ARCH"));
     return ARCH;
 }
+
+DLLEXPORT size_t jl_maxrss()
+{
+#if defined(_OS_WINDOWS_)
+	PROCESS_MEMORY_COUNTERS counter;
+	GetProcessMemoryInfo( GetCurrentProcess( ), &counter, sizeof(counter) );
+	return (size_t)counter.PeakWorkingSetSize;
+
+#elif defined(_OS_LINUX_) || defined(_OS_DARWIN_) || defined (_OS_FREEBSD_)
+	struct rusage rusage;
+	getrusage( RUSAGE_SELF, &rusage );
+
+#if defined(_OS_LINUX_)
+	return (size_t)(rusage.ru_maxrss * 1024);
+#else
+	return (size_t)rusage.ru_maxrss;
+#endif
+
+#else
+	return (size_t)0;
+#endif
+}
+
+
 
 #ifdef __cplusplus
 }

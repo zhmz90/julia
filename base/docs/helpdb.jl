@@ -2225,7 +2225,7 @@ promote
 doc"""
     @schedule
 
-Wrap an expression in a `Task` and add it to the scheduler's queue.
+Wrap an expression in a `Task` and add it to the local machine's scheduler queue.
 """
 :@schedule
 
@@ -2386,17 +2386,6 @@ doc"""
 Right division operator: multiplication of `x` by the inverse of `y` on the right. Gives floating-point results for integer arguments.
 """
 Base.(:(/))
-
-doc"""
-    ldltfact(::Union{SparseMatrixCSC,Symmetric{Float64,SparseMatrixCSC{Flaot64,SuiteSparse_long}},Hermitian{Complex{Float64},SparseMatrixCSC{Complex{Float64},SuiteSparse_long}}}; shift=0, perm=Int[]) -> CHOLMOD.Factor
-
-Compute the `LDLt` factorization of a sparse symmetric or Hermitian matrix. A fill-reducing permutation is used. `F = ldltfact(A)` is most frequently used to solve systems of equations `A*x = b` with `F\b`, but also the methods `diag`, `det`, `logdet` are defined for `F`. You can also extract individual factors from `F`, using `F[:L]`. However, since pivoting is on by default, the factorization is internally represented as `A == P'*L*D*L'*P` with a permutation matrix `P`; using just `L` without accounting for `P` will give incorrect answers. To include the effects of permutation, it's typically preferable to extact "combined" factors like `PtL = F[:PtL]` (the equivalent of `P'*L`) and `LtP = F[:UP]` (the equivalent of `L'*P`). The complete list of supported factors is `:L, :PtL, :D, :UP, :U, :LD, :DU, :PtLD, :DUP`.
-
-Setting optional `shift` keyword argument computes the factorization of `A+shift*I` instead of `A`. If the `perm` argument is nonempty, it should be a permutation of `1:size(A,1)` giving the ordering to use (instead of CHOLMOD's default AMD ordering).
-
-The function calls the C library CHOLMOD and many other functions from the library are wrapped but not exported.
-"""
-ldltfact(A::SparseMatrixCSC; shift=0, perm=Int[])
 
 doc"""
     connect([host],port) -> TcpSocket
@@ -3792,7 +3781,34 @@ utf8(s)
 doc"""
     hvcat(rows::Tuple{Vararg{Int}}, values...)
 
-Horizontal and vertical concatenation in one call. This function is called for block matrix syntax. The first argument specifies the number of arguments to concatenate in each block row. For example, `[a b;c d e]` calls `hvcat((2,3),a,b,c,d,e)`.
+Horizontal and vertical concatenation in one call. This function is called for block matrix syntax. The first argument specifies the number of arguments to concatenate in each block row.
+
+```jldoctest
+julia> a, b, c, d, e, f = 1, 2, 3, 4, 5, 6
+(1,2,3,4,5,6)
+
+julia> [a b c; d e f]
+2x3 Array{Int64,2}:
+ 1  2  3
+ 4  5  6
+
+julia> hvcat((3,3), a,b,c,d,e,f)
+2x3 Array{Int64,2}:
+ 1  2  3
+ 4  5  6
+
+julia> [a b;c d; e f]
+3x2 Array{Int64,2}:
+ 1  2
+ 3  4
+ 5  6
+
+julia> hvcat((2,2,2), a,b,c,d,e,f)
+3x2 Array{Int64,2}:
+ 1  2
+ 3  4
+ 5  6
+```
 
 If the first argument is a single integer `n`, then all block rows are assumed to have `n` block columns.
 """
@@ -4240,9 +4256,9 @@ Return a list of immediate subtypes of DataType `T`. Note that all currently loa
 subtypes
 
 doc"""
-    digits(n, [base], [pad])
+    digits([T], n, [base], [pad])
 
-Returns an array of the digits of `n` in the given base, optionally padded with zeros to a specified size. More significant digits are at higher indexes, such that `n == sum([digits[k]*base^(k-1) for k=1:length(digits)])`.
+Returns an array with element type `T` (default `Int`) of the digits of `n` in the given base, optionally padded with zeros to a specified size. More significant digits are at higher indexes, such that `n == sum([digits[k]*base^(k-1) for k=1:length(digits)])`.
 """
 digits
 
@@ -4389,7 +4405,7 @@ erfinv
 doc"""
     @async
 
-Wraps an expression in a closure and schedules it to run on the local machine. Also adds it to the set of items that the nearest enclosing `@sync` waits for.
+Like `@schedule`, `@async` wraps an expression in a `Task` and adds it to the local machine's scheduler queue. Additionally it adds the task to the set of items that the nearest enclosing `@sync` waits for. `@async` also wraps the expression in a `let x=x, y=y, ...` block to create a new scope with copies of all variables referenced in the expression.
 """
 :@async
 
@@ -6378,6 +6394,10 @@ doc"""
     unique(itr[, dim])
 
 Returns an array containing only the unique elements of the iterable `itr`, in the order that the first of each set of equivalent elements originally appears. If `dim` is specified, returns unique regions of the array `itr` along `dim`.
+
+    unique(f, itr)
+
+Returns an array containing one value from `itr` for each unique value produced by `f` applied to elements of `itr`.
 """
 unique
 
@@ -7228,13 +7248,6 @@ doc"""
 Tests whether `A` or its elements are of type `T`.
 """
 iseltype
-
-doc"""
-    symperm(A, p)
-
-Return the symmetric permutation of `A`, which is `A[p,p]`. `A` should be symmetric and sparse, where only the upper triangular part of the matrix is stored. This algorithm ignores the lower triangular part of the matrix. Only the upper triangular part of the result is returned as well.
-"""
-symperm
 
 doc"""
     min(x, y, ...)
@@ -9968,15 +9981,6 @@ ipermute!
 
 doc"""
 ```rst
-..  full(S)
-
-Convert a sparse matrix ``S`` into a dense matrix.
-```
-"""
-full(::AbstractSparseMatrix)
-
-doc"""
-```rst
 ..  full(F)
 
 Reconstruct the matrix ``A`` from the factorization ``F=factorize(A)``.
@@ -10459,13 +10463,6 @@ k]``.)
 ```
 """
 eigfact(A,B)
-
-doc"""
-    rowvals(A)
-
-Return a vector of the row indices of `A`, and any modifications to the returned vector will mutate `A` as well. Given the internal storage format of sparse matrices, providing access to how the row indices are stored internally can be useful in conjuction with iterating over structural nonzero values. See `nonzeros(A)` and `nzrange(A, col)`.
-"""
-rowvals
 
 doc"""
     mkdir(path, [mode])
@@ -11631,13 +11628,6 @@ Initialize `Pkg.dir()` as a package directory. This will be done automatically w
 Pkg.init()
 
 doc"""
-    publish()
-
-For each new package version tagged in `METADATA` not already published, make sure that the tagged package commits have been pushed to the repo at the registered URL for the package and if they all have, open a pull request to `METADATA`.
-"""
-Pkg.publish()
-
-doc"""
     pin(pkg)
 
 Pin `pkg` at the current version. To go back to using the newest compatible released version, use `Pkg.free(pkg)`
@@ -11671,13 +11661,6 @@ doc"""
 Returns the version numbers available for package `pkg`.
 """
 Pkg.available(pkg)
-
-doc"""
-    register(pkg, [url])
-
-Register `pkg` at the git URL `url`, defaulting to the configured origin URL of the git repo `Pkg.dir(pkg)`.
-"""
-Pkg.register(pkg, url=?)
 
 doc"""
     rm(pkg)
@@ -11745,13 +11728,6 @@ Add a requirement entry for `pkg` to `Pkg.dir("REQUIRE")` and call `Pkg.resolve(
 Pkg.add(pkg, vers...)
 
 doc"""
-    tag(pkg, [ver, [commit]])
-
-Tag `commit` as version `ver` of package `pkg` and create a version entry in `METADATA`. If not provided, `commit` defaults to the current commit of the `pkg` repo. If `ver` is one of the symbols `:patch`, `:minor`, `:major` the next patch, minor or major version is used. If `ver` is not provided, it defaults to `:patch`.
-"""
-Pkg.tag(pkg)
-
-doc"""
     test()
 
 Run the tests for all installed packages ensuring that each package's test dependencies are installed for the duration of the test. A package is tested by running its `test/runtests.jl` file and test dependencies are specified in `test/REQUIRE`.
@@ -11764,13 +11740,6 @@ doc"""
 Run the tests for each package in `pkgs` ensuring that each package's test dependencies are installed for the duration of the test. A package is tested by running its `test/runtests.jl` file and test dependencies are specified in `test/REQUIRE`.
 """
 Pkg.test(pkgs...)
-
-doc"""
-    generate(pkg,license)
-
-Generate a new package named `pkg` with one of these license keys: `"MIT"`, `"BSD"` or `"ASL"`. If you want to make a package with a different license, you can edit it afterwards. Generate creates a git repo at `Pkg.dir(pkg)` for the package and inside it `LICENSE.md`, `README.md`, `REQUIRE`, the julia entrypoint `$pkg/src/$pkg.jl`, and Travis and AppVeyor CI configuration files `.travis.yml` and `appveyor.yml`.
-"""
-Pkg.generate(pkg,license)
 
 doc"""
     dir() -> AbstractString

@@ -77,8 +77,8 @@ function isfixed(pkg::AbstractString, prepo::LibGit2.GitRepo, avail::Dict=availa
     else
         false
     end
+    res = true
     try
-        res = true
         for (ver,info) in avail
             if cache_has_head && LibGit2.iscommit(info.sha1, crepo)
                 if LibGit2.is_ancestor_of(head, info.sha1, crepo)
@@ -178,15 +178,14 @@ function installed(avail::Dict=available())
     for pkg in readdir()
         isinstalled(pkg) || continue
         ap = get(avail,pkg,Dict{VersionNumber,Available}())
-        prepo = LibGit2.GitRepo(pkg)
-        try
-            ver = installed_version(pkg, prepo, ap)
-            fixed = isfixed(pkg, prepo, ap)
-            pkgs[pkg] = (ver, fixed)
-        catch
+        if ispath(pkg,".git")
+            LibGit2.with(LibGit2.GitRepo, pkg) do repo
+                ver = installed_version(pkg, repo, ap)
+                fixed = isfixed(pkg, repo, ap)
+                pkgs[pkg] = (ver, fixed)
+            end
+        else
             pkgs[pkg] = (typemin(VersionNumber), true)
-        finally
-            finalize(prepo)
         end
     end
     return pkgs

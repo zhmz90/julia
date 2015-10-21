@@ -656,17 +656,6 @@ extern "C" {
     int globalUnique = 0;
 }
 
-extern "C" DLLEXPORT
-jl_value_t *jl_get_cpu_name(void)
-{
-#if LLVM_VERSION_MAJOR == 3 && LLVM_VERSION_MINOR < 5
-    std::string HostCPUName = llvm::sys::getHostCPUName();
-#else
-    StringRef HostCPUName = llvm::sys::getHostCPUName();
-#endif
-    return jl_pchar_to_string(HostCPUName.data(), HostCPUName.size());
-}
-
 static void emit_write_barrier(jl_codectx_t*, Value*, Value*);
 
 #include "cgutils.cpp"
@@ -2071,10 +2060,10 @@ static Value *emit_bits_compare(const jl_cgval_t &arg1, const jl_cgval_t &arg2, 
             Type *atp = at->getPointerTo();
             Value *varg1 = arg1.V;
             if (varg1->getType() != atp)
-                builder.CreatePointerCast(varg1, atp);
+                varg1 = builder.CreatePointerCast(varg1, atp);
             Value *varg2 = arg2.V;
             if (varg2->getType() != atp)
-                builder.CreatePointerCast(varg2, atp);
+                varg2 = builder.CreatePointerCast(varg2, atp);
             jl_svec_t *types = ((jl_datatype_t*)arg1.typ)->types;
             Value *answer = ConstantInt::get(T_int1, 1);
             size_t l = jl_svec_len(types);
@@ -2645,10 +2634,13 @@ static bool emit_known_call(jl_cgval_t *ret, jl_value_t *ff,
         else if (jl_is_leaf_type(aty)) {
             jl_cgval_t arg1 = emit_expr(args[1], ctx);
             Value *sz;
-            if (aty == (jl_value_t*)jl_datatype_type)
-                sz = emit_datatype_nfields(arg1);
-            else
+            if (aty == (jl_value_t*)jl_datatype_type) {
+                assert(arg1.isboxed);
+                sz = emit_datatype_nfields(arg1.V);
+            }
+            else {
                 sz = ConstantInt::get(T_size, jl_datatype_nfields(aty));
+            }
             *ret = mark_julia_type(sz, false, jl_long_type);
             JL_GC_POP();
             return true;
@@ -2662,8 +2654,9 @@ static bool emit_known_call(jl_cgval_t *ret, jl_value_t *ff,
             rt2 = expr_type(args[2], ctx); // index argument type
             if (rt2 == (jl_value_t*)jl_long_type) {
                 jl_cgval_t ty = emit_expr(args[1], ctx);
-                Value *types_svec = emit_datatype_types(ty);
-                Value *types_len = emit_datatype_nfields(ty);
+                assert(ty.isboxed);
+                Value *types_svec = emit_datatype_types(ty.V);
+                Value *types_len = emit_datatype_nfields(ty.V);
                 Value *idx = emit_unbox(T_size, emit_unboxed(args[2], ctx), (jl_value_t*)jl_long_type);
                 emit_bounds_check(ty, (jl_value_t*)jl_datatype_type, idx, types_len, ctx);
                 Value *fieldtyp = builder.CreateLoad(builder.CreateGEP(builder.CreateBitCast(types_svec, T_ppjlvalue), idx));
@@ -4476,7 +4469,9 @@ static Function *emit_function(jl_lambda_info_t *lam)
                     continue;
                 ditypes.push_back(julia_type_to_di(jl_tparam(lam->specTypes,i),ctx.dbuilder,false));
             }
-#ifdef LLVM36
+#ifdef LLVM38
+            subrty = ctx.dbuilder->createSubroutineType(ctx.dbuilder->getOrCreateTypeArray(ditypes));
+#elif defined(LLVM36)
             subrty = ctx.dbuilder->createSubroutineType(topfile,ctx.dbuilder->getOrCreateTypeArray(ditypes));
 #else
             subrty = ctx.dbuilder->createSubroutineType(topfile,ctx.dbuilder->getOrCreateArray(ditypes));
@@ -5199,15 +5194,6 @@ extern "C" void jl_fptr_to_llvm(void *fptr, jl_lambda_info_t *lam, int specsig)
     }
 }
 
-extern "C" DLLEXPORT jl_value_t *jl_new_box(jl_value_t *v)
-{
-    jl_value_t *box = (jl_value_t*)jl_gc_alloc_1w();
-    jl_set_typeof(box, jl_box_any_type);
-    // if (v) jl_gc_wb(box, v); // write block not needed: box was just allocated
-    box->fieldptr[0] = v;
-    return box;
-}
-
 #if LLVM_VERSION_MAJOR == 3 && LLVM_VERSION_MINOR == 3 && SYSTEM_LLVM
 #define INSTCOMBINE_BUG
 #define V128_BUG
@@ -5312,7 +5298,10 @@ static void init_julia_llvm_env(Module *m)
     // Third argument (length(argv))
     diargs.push_back(julia_type_to_di((jl_value_t*)jl_int32_type,&dbuilder,false));
 
-#ifdef LLVM36
+#ifdef LLVM38
+    jl_di_func_sig = dbuilder.createSubroutineType(
+        dbuilder.getOrCreateTypeArray(diargs));
+#elif defined(LLVM36)
     jl_di_func_sig = dbuilder.createSubroutineType(julia_h,
         dbuilder.getOrCreateTypeArray(diargs));
 #else
@@ -6109,6 +6098,7 @@ extern "C" void jl_init_codegen(void)
                               "jl_box32", (void*)&jl_box32, m);
     box64_func = boxfunc_llvm(ft2arg(T_pjlvalue, T_pjlvalue, T_int64),
                               "jl_box64", (void*)&jl_box64, m);
+    jl_init_intrinsic_functions_codegen(m);
 }
 
 // for debugging from gdb

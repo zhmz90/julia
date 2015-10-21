@@ -266,6 +266,7 @@ EXE :=
 endif
 
 JULIAGC := MARKSWEEP
+JULIACODEGEN := LLVM
 USE_COPY_STACKS := 1
 
 # flag for disabling assertions
@@ -452,12 +453,14 @@ endif
 ifeq ($(SANITIZE),1)
 ifeq ($(SANITIZE_MEMORY),1)
 SANITIZE_OPTS := -fsanitize=memory -fsanitize-memory-track-origins -fno-omit-frame-pointer
+SANITIZE_LDFLAGS := $(SANITIZE_OPTS)
 else
 SANITIZE_OPTS := -fsanitize=address -mllvm -asan-stack=0
+SANITIZE_LDFLAGS := -fsanitize=address
 endif
 JCXXFLAGS += $(SANITIZE_OPTS)
 JCFLAGS += $(SANITIZE_OPTS)
-LDFLAGS += $(SANITIZE_OPTS)
+LDFLAGS += $(SANITIZE_LDFLAGS)
 DEPS_CFLAGS += $(SANITIZE_OPTS)
 DEPS_CXXFLAGS += $(SANITIZE_OPTS)
 endif
@@ -590,14 +593,9 @@ ISX86:=1
 else ifeq ($(ARCH),x86_64)
 BINARY:=64
 ISX86:=1
-else ifneq (,$(findstring arm,$(ARCH)))
-ISX86:=0
-else ifneq (,$(findstring powerpc,$(ARCH)))
-ISX86:=0
-else ifneq (,$(findstring ppc,$(ARCH)))
-ISX86:=0
 else
-$(error "unknown word-size for arch: $(ARCH)")
+# For all other architectures (ARM, PPC, AArch64, etc.)
+ISX86:=0
 endif
 
 # If we are running on ARM, set certain options automatically
