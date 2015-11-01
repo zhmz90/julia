@@ -63,10 +63,14 @@ extern "C" {
 
 // threading ------------------------------------------------------------------
 
-// WARNING: Threading support is incomplete.  Changing the 1 to a 0 will break Julia.
+// WARNING: Threading support is incomplete and experimental (and only works with llvm-svn)
 // Nonetheless, we define JL_THREAD and use it to give advanced notice to maintainers
 // of what eventual threading support will change.
-#if 1
+
+// JULIA_ENABLE_THREADING is switched on in Make.inc if JULIA_THREADS is
+// set (in Make.user)
+
+#ifndef JULIA_ENABLE_THREADING
 // Definition for compiling non-thread-safe Julia.
 #  define JL_THREAD
 #elif !defined(_OS_WINDOWS_)
@@ -76,6 +80,72 @@ extern "C" {
 // Definition for compiling Julia on Windows
 #  define JL_THREAD __declspec(thread)
 #endif
+
+DLLEXPORT int16_t jl_threadid(void);
+DLLEXPORT void *jl_threadgroup(void);
+DLLEXPORT void jl_cpu_pause(void);
+DLLEXPORT void jl_threading_profile();
+
+#if __GNUC__
+#  define JL_ATOMIC_FETCH_AND_ADD(a,b)                                    \
+       __sync_fetch_and_add(&(a), (b))
+#  define JL_ATOMIC_COMPARE_AND_SWAP(a,b,c)                               \
+       __sync_bool_compare_and_swap(&(a), (b), (c))
+#  define JL_ATOMIC_TEST_AND_SET(a)                                       \
+       __sync_lock_test_and_set(&(a), 1)
+#  define JL_ATOMIC_RELEASE(a)                                            \
+       __sync_lock_release(&(a))
+#elif _WIN32
+#  define JL_ATOMIC_FETCH_AND_ADD(a,b)                                    \
+       _InterlockedExchangeAdd((volatile LONG *)&(a), (b))
+#  define JL_ATOMIC_COMPARE_AND_SWAP(a,b,c)                               \
+       _InterlockedCompareExchange64(&(a), (c), (b))
+#  define JL_ATOMIC_TEST_AND_SET(a)                                       \
+       _InterlockedExchange64(&(a), 1)
+#  define JL_ATOMIC_RELEASE(a)                                            \
+       _InterlockedExchange64(&(a), 0)
+#else
+#  error "No atomic operations supported."
+#endif
+
+#ifdef JULIA_ENABLE_THREADING
+#define FORCE_ELF
+#define JL_DEFINE_MUTEX(m)                                                \
+    uint64_t volatile m ## _mutex = 0;                                    \
+    int32_t m ## _lock_count = 0;
+
+#define JL_DEFINE_MUTEX_EXT(m)                                            \
+    extern uint64_t volatile m ## _mutex;                                 \
+    extern int32_t m ## _lock_count;
+
+#define JL_LOCK(m)                                                        \
+    if (m ## _mutex == uv_thread_self())                                  \
+        ++m ## _lock_count;                                               \
+    else {                                                                \
+        for (; ;) {                                                       \
+            if (m ## _mutex == 0 &&                                       \
+                    JL_ATOMIC_COMPARE_AND_SWAP(m ## _mutex, 0,            \
+                                               uv_thread_self())) {       \
+                m ## _lock_count = 1;                                     \
+                break;                                                    \
+            }                                                             \
+            jl_cpu_pause();                                               \
+        }                                                                 \
+    }
+
+#define JL_UNLOCK(m)                                                      \
+    if (m ## _mutex == uv_thread_self()) {                                \
+        --m ## _lock_count;                                               \
+        if (m ## _lock_count == 0)                                        \
+            JL_ATOMIC_COMPARE_AND_SWAP(m ## _mutex, uv_thread_self(), 0); \
+    }
+#else
+#define JL_DEFINE_MUTEX(m)
+#define JL_DEFINE_MUTEX_EXT(m)
+#define JL_LOCK(m)
+#define JL_UNLOCK(m)
+#endif
+
 
 // core data types ------------------------------------------------------------
 
@@ -192,13 +262,13 @@ typedef struct _jl_lambda_info_t {
     jl_value_t *tfunc;
     jl_sym_t *name;  // for error reporting
     jl_array_t *roots;  // pointers in generated code
-    jl_tupletype_t *specTypes;  // argument types this is specialized for
+    jl_tupletype_t *specTypes;  // argument types this will be compiled for
     // a slower-but-works version of this function as a fallback
     struct _jl_function_t *unspecialized;
     // array of all lambda infos with code generated from this one
     jl_array_t *specializations;
     struct _jl_module_t *module;
-    struct _jl_lambda_info_t *def;  // original this is specialized from
+    struct _jl_lambda_info_t *def;  // original this is specialized from, for consolidating codegen roots
     jl_value_t *capt;  // captured var info
     jl_sym_t *file;
     int32_t line;
@@ -208,8 +278,8 @@ typedef struct _jl_lambda_info_t {
     // hidden fields:
     // flag telling if inference is running on this function
     // used to avoid infinite recursion
-    int8_t inInference : 1;
-    int8_t inCompile : 1;
+    uint8_t inInference : 1;
+    uint8_t inCompile : 1;
     jl_fptr_t fptr;             // jlcall entry point
     void *functionObject;       // jlcall llvm Function
     void *cFunctionList;        // c callable llvm Functions
@@ -1233,13 +1303,14 @@ enum JL_RTLD_CONSTANT {
 };
 #define JL_RTLD_DEFAULT (JL_RTLD_LAZY | JL_RTLD_DEEPBIND)
 
-typedef void *jl_uv_libhandle; // uv_lib_t* (avoid uv.h dependency)
+typedef void *jl_uv_libhandle; // compatible with dlopen (void*) / LoadLibrary (HMODULE)
 DLLEXPORT jl_uv_libhandle jl_load_dynamic_library(const char *fname, unsigned flags);
 DLLEXPORT jl_uv_libhandle jl_load_dynamic_library_e(const char *fname, unsigned flags);
+DLLEXPORT jl_uv_libhandle jl_dlopen(const char *filename, unsigned flags);
+DLLEXPORT int jl_dlclose(jl_uv_libhandle handle);
 DLLEXPORT void *jl_dlsym_e(jl_uv_libhandle handle, const char *symbol);
 DLLEXPORT void *jl_dlsym(jl_uv_libhandle handle, const char *symbol);
-DLLEXPORT int jl_uv_dlopen(const char *filename, jl_uv_libhandle lib, unsigned flags);
-char *jl_dlfind_win32(const char *name);
+const char *jl_dlfind_win32(const char *name);
 DLLEXPORT int add_library_mapping(char *lib, void *hnd);
 
 #if defined(__linux__) || defined(__FreeBSD__)
@@ -1247,9 +1318,10 @@ DLLEXPORT const char *jl_lookup_soname(const char *pfx, size_t n);
 #endif
 
 // compiler
-void jl_compile(jl_function_t *f);
+void jl_compile_linfo(jl_lambda_info_t *li);
 DLLEXPORT jl_value_t *jl_toplevel_eval(jl_value_t *v);
-DLLEXPORT jl_value_t *jl_toplevel_eval_in(jl_module_t *m, jl_value_t *ex, int delay_warn);
+DLLEXPORT jl_value_t *jl_toplevel_eval_in(jl_module_t *m, jl_value_t *ex);
+DLLEXPORT jl_value_t *jl_toplevel_eval_in_warn(jl_module_t *m, jl_value_t *ex, int delay_warn);
 jl_value_t *jl_eval_global_var(jl_module_t *m, jl_sym_t *e);
 DLLEXPORT jl_value_t *jl_load(const char *fname, size_t len);
 jl_value_t *jl_parse_eval_all(const char *fname, size_t len);
@@ -1344,11 +1416,11 @@ DLLEXPORT void jl_yield(void);
 DLLEXPORT extern volatile sig_atomic_t jl_signal_pending;
 DLLEXPORT extern volatile sig_atomic_t jl_defer_signal;
 
-#define JL_SIGATOMIC_BEGIN() (jl_defer_signal++)
+#define JL_SIGATOMIC_BEGIN() (JL_ATOMIC_FETCH_AND_ADD(jl_defer_signal,1))
 #define JL_SIGATOMIC_END()                                      \
     do {                                                        \
-        jl_defer_signal--;                                      \
-        if (jl_defer_signal == 0 && jl_signal_pending != 0) {   \
+	if (JL_ATOMIC_FETCH_AND_ADD(jl_defer_signal,-1) == 1 	    \
+		&& jl_signal_pending != 0) {			                \
             jl_signal_pending = 0;                              \
             jl_sigint_action();                                 \
         }                                                       \
@@ -1395,11 +1467,23 @@ typedef struct _jl_task_t {
     jl_gcframe_t *gcstack;
     // current module, or NULL if this task has not set one
     jl_module_t *current_module;
+
+    // id of owning thread
+    // does not need to be defined until the task runs
+    int16_t tid;
 } jl_task_t;
+
+typedef struct {
+    jl_task_t * volatile *pcurrent_task;
+    jl_task_t **proot_task;
+    jl_value_t **pexception_in_transit;
+    jl_value_t * volatile *ptask_arg_in_transit;
+} jl_thread_task_state_t;
 
 extern DLLEXPORT JL_THREAD jl_task_t * volatile jl_current_task;
 extern DLLEXPORT JL_THREAD jl_task_t *jl_root_task;
 extern DLLEXPORT JL_THREAD jl_value_t *jl_exception_in_transit;
+extern DLLEXPORT JL_THREAD jl_value_t * volatile jl_task_arg_in_transit;
 
 DLLEXPORT jl_task_t *jl_new_task(jl_function_t *start, size_t ssize);
 DLLEXPORT jl_value_t *jl_switchto(jl_task_t *t, jl_value_t *arg);
@@ -1571,6 +1655,7 @@ typedef struct {
     int8_t worker;
     int8_t handle_signals;
     int8_t use_precompiled;
+    int8_t use_compilecache;
     const char *bindto;
     const char *outputbc;
     const char *outputo;
@@ -1619,6 +1704,9 @@ DLLEXPORT int jl_generating_output(void);
 
 #define JL_OPTIONS_USE_PRECOMPILED_YES 1
 #define JL_OPTIONS_USE_PRECOMPILED_NO 0
+
+#define JL_OPTIONS_USE_COMPILECACHE_YES 1
+#define JL_OPTIONS_USE_COMPILECACHE_NO 0
 
 // Version information
 #include <julia_version.h>

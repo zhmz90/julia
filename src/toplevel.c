@@ -69,8 +69,6 @@ jl_module_t *jl_new_main_module(void)
                   (jl_value_t*)jl_main_module);
     jl_current_task->current_module = jl_main_module;
 
-    jl_module_import(jl_main_module, jl_core_module, jl_symbol("eval"));
-
     return old_main;
 }
 
@@ -699,23 +697,6 @@ DLLEXPORT jl_value_t *jl_generic_function_def(jl_sym_t *name, jl_value_t **bp, j
         if (bp_owner) jl_gc_wb(bp_owner, gf);
     }
     return gf;
-}
-
-static jl_lambda_info_t *jl_copy_lambda_info(jl_lambda_info_t *linfo)
-{
-    jl_lambda_info_t *new_linfo =
-        jl_new_lambda_info(linfo->ast, linfo->sparams, linfo->module);
-    new_linfo->tfunc = linfo->tfunc;
-    new_linfo->name = linfo->name;
-    new_linfo->roots = linfo->roots;
-    new_linfo->specTypes = linfo->specTypes;
-    new_linfo->unspecialized = linfo->unspecialized;
-    new_linfo->specializations = linfo->specializations;
-    new_linfo->def = linfo->def;
-    new_linfo->capt = linfo->capt;
-    new_linfo->file = linfo->file;
-    new_linfo->line = linfo->line;
-    return new_linfo;
 }
 
 DLLEXPORT jl_value_t *jl_method_def(jl_sym_t *name, jl_value_t **bp, jl_value_t *bp_owner,

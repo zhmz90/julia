@@ -70,13 +70,11 @@ static htable_t fptr_to_id;
 // (reverse of fptr_to_id)
 static jl_fptr_t id_to_fptrs[] = {
   NULL, NULL,
-  jl_f_throw, jl_f_is, jl_f_no_function, jl_f_typeof,
-  jl_f_subtype, jl_f_isa, jl_f_typeassert, jl_f_apply,
-  jl_f_top_eval, jl_f_isdefined, jl_f_tuple, jl_f_svec,
+  jl_f_throw, jl_f_is, jl_f_no_function, jl_f_typeof, jl_f_subtype, jl_f_isa,
+  jl_f_typeassert, jl_f_apply, jl_f_isdefined, jl_f_tuple, jl_f_svec,
   jl_f_get_field, jl_f_set_field, jl_f_field_type, jl_f_nfields,
-  jl_f_arraylen, jl_f_arrayref, jl_f_arrayset, jl_f_arraysize,
-  jl_f_instantiate_type, jl_f_kwcall, jl_trampoline,
-  jl_f_methodexists, jl_f_applicable, jl_f_invoke,
+  jl_f_arrayref, jl_f_arrayset, jl_f_arraysize, jl_f_instantiate_type,
+  jl_f_kwcall, jl_trampoline, jl_f_applicable, jl_f_invoke,
   jl_apply_generic, jl_unprotect_stack, jl_f_sizeof, jl_f_new_expr,
   jl_f_intrinsic_call,
   NULL };
@@ -208,7 +206,7 @@ extern void jl_cpuid(int32_t CPUInfo[4], int32_t InfoType);
 #endif
 
 extern int globalUnique;
-uv_lib_t *jl_sysimg_handle = NULL;
+void *jl_sysimg_handle = NULL;
 uint64_t jl_sysimage_base = 0;
 #ifdef _OS_WINDOWS_
 #include <dbghelp.h>
@@ -256,7 +254,7 @@ static int jl_load_sysimg_so()
 #endif
 
 #ifdef _OS_WINDOWS_
-        jl_sysimage_base = (intptr_t)jl_sysimg_handle->handle;
+        jl_sysimage_base = (intptr_t)jl_sysimg_handle;
 #else
         if (dladdr((void*)sysimg_gvars, &dlinfo) != 0) {
             jl_sysimage_base = (intptr_t)dlinfo.dli_fbase;
@@ -1590,7 +1588,7 @@ void jl_deserialize_lambdas_from_mod(ios_t *s)
         jl_function_t *meth = (jl_function_t*)jl_deserialize_value(s, NULL);
         jl_svec_t *tvars = (jl_svec_t*)jl_deserialize_value(s, NULL);
         int8_t isstaged = read_int8(s);
-        jl_add_method(gf, types, meth, tvars, isstaged);
+        jl_method_table_insert(jl_gf_mtable(gf), types, meth, tvars, isstaged);
     }
 }
 
@@ -1840,7 +1838,7 @@ DLLEXPORT void jl_preload_sysimg_so(const char *fname)
     }
 
     // Get handle to sys.so
-    jl_sysimg_handle = (uv_lib_t*)jl_load_dynamic_library_e(fname_shlib, JL_RTLD_DEFAULT | JL_RTLD_GLOBAL);
+    jl_sysimg_handle = jl_load_dynamic_library_e(fname_shlib, JL_RTLD_DEFAULT | JL_RTLD_GLOBAL);
 
     // set cpu target if unspecified by user and available from sysimg
     // otherwise default to native.
@@ -2076,9 +2074,6 @@ DLLEXPORT int jl_save_incremental(const char *fname, jl_array_t *worklist)
 
     return 0;
 }
-
-jl_function_t *jl_method_cache_insert(jl_methtable_t *mt, jl_tupletype_t *type,
-                                      jl_function_t *method);
 
 static jl_datatype_t *jl_recache_type(jl_datatype_t *dt, size_t start)
 {

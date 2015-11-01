@@ -676,6 +676,8 @@ export
     lufact,
     lyap,
     norm,
+    normalize,
+    normalize!,
     nullspace,
     ordschur!,
     ordschur,
@@ -751,6 +753,7 @@ export
     filter,
     foldl,
     foldr,
+    foreach,
     get,
     get!,
     getindex,
@@ -1082,6 +1085,7 @@ export
     isgeneric,
     isinteractive,
     less,
+    method_exists,
     methods,
     methodswith,
     module_name,
@@ -1298,6 +1302,7 @@ export
     tempname,
     touch,
     uperm,
+    walkdir,
 
 # external processes ## TODO: whittle down these exports.
     detach,

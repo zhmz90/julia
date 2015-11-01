@@ -66,6 +66,7 @@ void jl_set_gs_ctr(uint32_t ctr);
 
 void NORETURN jl_no_method_error_bare(jl_function_t *f, jl_value_t *args);
 void NORETURN jl_no_method_error(jl_function_t *f, jl_value_t **args, size_t na);
+DLLEXPORT void jl_typeassert(jl_value_t *x, jl_value_t *t);
 
 #define JL_CALLABLE(name) \
     DLLEXPORT jl_value_t *name(jl_value_t *F, jl_value_t **args, uint32_t nargs)
@@ -108,6 +109,11 @@ jl_value_t *jl_type_match_morespecific(jl_value_t *a, jl_value_t *b);
 int jl_types_equal_generic(jl_value_t *a, jl_value_t *b, int useenv);
 jl_datatype_t *jl_inst_concrete_tupletype_v(jl_value_t **p, size_t np);
 jl_datatype_t *jl_inst_concrete_tupletype(jl_svec_t *p);
+jl_function_t *jl_method_cache_insert(jl_methtable_t *mt, jl_tupletype_t *type,
+                                      jl_function_t *method);
+jl_methlist_t *jl_method_table_insert(jl_methtable_t *mt, jl_tupletype_t *type,
+                                      jl_function_t *method, jl_svec_t *tvars,
+                                      int8_t isstaged);
 
 void jl_set_datatype_super(jl_datatype_t *tt, jl_value_t *super);
 void jl_add_constructors(jl_datatype_t *t);
@@ -117,6 +123,7 @@ void jl_compute_field_offsets(jl_datatype_t *st);
 jl_array_t *jl_new_array_for_deserialization(jl_value_t *atype, uint32_t ndims, size_t *dims,
                                              int isunboxed, int elsz);
 DLLEXPORT jl_value_t *jl_new_box(jl_value_t *v);
+jl_lambda_info_t *jl_copy_lambda_info(jl_lambda_info_t *linfo);
 extern jl_array_t *jl_module_init_order;
 
 #ifdef JL_USE_INTEL_JITEVENTS
@@ -136,21 +143,30 @@ void jl_init_intrinsic_functions(void);
 void jl_init_tasks(void);
 void jl_init_root_task(void *stack, size_t ssize);
 void jl_init_serializer(void);
+
 void _julia_init(JL_IMAGE_SEARCH rel);
 #ifdef COPY_STACKS
 extern JL_THREAD void *jl_stackbase;
 #endif
+
+void jl_set_stackbase(char *__stk);
+void jl_set_base_ctx(char *__stk);
+
+void jl_init_threading(void);
+void jl_start_threads(void);
+void jl_shutdown_threading(void);
 
 void jl_dump_bitcode(char *fname, const char *sysimg_data, size_t sysimg_len);
 void jl_dump_objfile(char *fname, int jit_model, const char *sysimg_data, size_t sysimg_len);
 int32_t jl_get_llvm_gv(jl_value_t *p);
 void jl_idtable_rehash(jl_array_t **pa, size_t newsz);
 
-jl_lambda_info_t *jl_add_static_parameters(jl_lambda_info_t *l, jl_svec_t *sp);
+jl_lambda_info_t *jl_add_static_parameters(jl_lambda_info_t *l, jl_svec_t *sp, jl_tupletype_t *types);
 jl_function_t *jl_get_specialization(jl_function_t *f, jl_tupletype_t *types);
 jl_function_t *jl_module_get_initializer(jl_module_t *m);
 void jl_generate_fptr(jl_function_t *f);
 void jl_fptr_to_llvm(void *fptr, jl_lambda_info_t *lam, int specsig);
+jl_tupletype_t *arg_type_tuple(jl_value_t **args, size_t nargs);
 
 jl_value_t* skip_meta(jl_array_t *body);
 int has_meta(jl_array_t *body, jl_sym_t *sym);
@@ -202,18 +218,18 @@ static inline char *jl_copy_str(char **to, const char *from)
 DLLEXPORT uint64_t jl_hrtime(void);
 
 // libuv stuff:
-DLLEXPORT extern uv_lib_t *jl_dl_handle;
-DLLEXPORT extern uv_lib_t *jl_RTLD_DEFAULT_handle;
+DLLEXPORT extern void *jl_dl_handle;
+DLLEXPORT extern void *jl_RTLD_DEFAULT_handle;
 #if defined(_OS_WINDOWS_)
-DLLEXPORT extern uv_lib_t *jl_exe_handle;
-extern uv_lib_t *jl_ntdll_handle;
-extern uv_lib_t *jl_kernel32_handle;
-extern uv_lib_t *jl_crtdll_handle;
-extern uv_lib_t *jl_winsock_handle;
+DLLEXPORT extern void *jl_exe_handle;
+extern void *jl_ntdll_handle;
+extern void *jl_kernel32_handle;
+extern void *jl_crtdll_handle;
+extern void *jl_winsock_handle;
 #endif
 
-uv_lib_t *jl_get_library(char *f_lib);
-DLLEXPORT void *jl_load_and_lookup(char *f_lib, char *f_name, uv_lib_t **hnd);
+void *jl_get_library(const char *f_lib);
+DLLEXPORT void *jl_load_and_lookup(const char *f_lib, const char *f_name, void **hnd);
 
 
 // libuv wrappers:
@@ -317,8 +333,7 @@ DLLEXPORT jl_value_t *jl_copysign_float(jl_value_t *a, jl_value_t *b);
 DLLEXPORT jl_value_t *jl_flipsign_int(jl_value_t *a, jl_value_t *b);
 
 DLLEXPORT jl_value_t *jl_select_value(jl_value_t *isfalse, jl_value_t *a, jl_value_t *b);
-
-
+DLLEXPORT jl_value_t *jl_arraylen(jl_value_t *a);
 
 #ifdef __cplusplus
 }

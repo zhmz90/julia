@@ -4,7 +4,7 @@ import Core.Intrinsics.ccall
 
 baremodule Base
 
-using Core: Intrinsics, arraylen, arrayref, arrayset, arraysize, _expr,
+using Core: Intrinsics, arrayref, arrayset, arraysize, _expr,
             kwcall, _apply, typeassert, apply_type, svec
 ccall(:jl_set_istopmod, Void, (Bool,), true)
 
@@ -301,6 +301,9 @@ include("deprecated.jl")
 # Some basic documentation
 include("docs/helpdb.jl")
 include("docs/basedocs.jl")
+
+# threads
+include("threads.jl")
 
 function __init__()
     # Base library init

@@ -18,7 +18,10 @@ function deepcopy_internal(x::Function, stackdict::ObjectIdDict)
     if isa(x.env, Union{MethodTable, Symbol}) || x.env === ()
         return x
     end
-    invoke(deepcopy_internal, Tuple{Any, ObjectIdDict}, x, stackdict)
+    if haskey(stackdict, x)
+        return stackdict[x]
+    end
+    _deepcopy_t(x, typeof(x), stackdict)
 end
 
 function deepcopy_internal(x, stackdict::ObjectIdDict)
@@ -56,7 +59,7 @@ end
 
 function _deepcopy_array_t(x, T, stackdict::ObjectIdDict)
     if isbits(T)
-        return copy(x)
+        return (stackdict[x]=copy(x))
     end
     dest = similar(x)
     stackdict[x] = dest

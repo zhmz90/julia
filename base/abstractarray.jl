@@ -60,7 +60,7 @@ ndims{T,n}(::Type{AbstractArray{T,n}}) = n
 ndims{T<:AbstractArray}(::Type{T}) = ndims(super(T))
 length(t::AbstractArray) = prod(size(t))::Int
 endof(a::AbstractArray) = length(a)
-first(a::AbstractArray) = a[1]
+first(a::AbstractArray) = a[first(eachindex(a))]
 
 function first(itr)
     state = start(itr)
@@ -189,13 +189,14 @@ end
 ## Constructors ##
 
 # default arguments to similar()
-similar{T}(a::AbstractArray{T})               = similar(a, T, size(a))
-similar(   a::AbstractArray, T)               = similar(a, T, size(a))
-similar{T}(a::AbstractArray{T}, dims::Dims)   = similar(a, T, dims)
-similar{T}(a::AbstractArray{T}, dims::Int...) = similar(a, T, dims)
-similar(   a::AbstractArray, T, dims::Int...) = similar(a, T, dims)
+similar{T}(a::AbstractArray{T})                          = similar(a, T, size(a))
+similar(   a::AbstractArray, T::Type)                    = similar(a, T, size(a))
+similar{T}(a::AbstractArray{T}, dims::DimsInteger)       = similar(a, T, dims)
+similar{T}(a::AbstractArray{T}, dims::Integer...)        = similar(a, T, dims)
+similar(   a::AbstractArray, T::Type, dims::Integer...)  = similar(a, T, dims)
 # similar creates an Array by default
-similar(   a::AbstractArray, T, dims::Dims)   = Array(T, dims)
+similar(   a::AbstractArray, T::Type, dims::DimsInteger) = Array(T, dims...)
+similar(   a::AbstractArray, T::Type, dims::Dims)        = Array(T, dims)
 
 function reshape(a::AbstractArray, dims::Dims)
     if prod(dims) != length(a)
@@ -711,29 +712,29 @@ cat(catdim::Integer) = Array(Any, 0)
 
 vcat() = Array(Any, 0)
 hcat() = Array(Any, 0)
+typed_vcat(T::Type) = Array(T, 0)
+typed_hcat(T::Type) = Array(T, 0)
 
 ## cat: special cases
-hcat{T}(X::T...)         = T[ X[j] for i=1, j=1:length(X) ]
-hcat{T<:Number}(X::T...) = T[ X[j] for i=1, j=1:length(X) ]
 vcat{T}(X::T...)         = T[ X[i] for i=1:length(X) ]
 vcat{T<:Number}(X::T...) = T[ X[i] for i=1:length(X) ]
+hcat{T}(X::T...)         = T[ X[j] for i=1, j=1:length(X) ]
+hcat{T<:Number}(X::T...) = T[ X[j] for i=1, j=1:length(X) ]
 
-function vcat(X::Number...)
-    T = promote_typeof(X...)
-    hvcat_fill(Array(T,length(X)), X)
-end
+vcat(X::Number...) = hvcat_fill(Array(promote_typeof(X...),length(X)), X)
+hcat(X::Number...) = hvcat_fill(Array(promote_typeof(X...),1,length(X)), X)
+typed_vcat(T::Type, X::Number...) = hvcat_fill(Array(T,length(X)), X)
+typed_hcat(T::Type, X::Number...) = hvcat_fill(Array(T,1,length(X)), X)
 
-function hcat(X::Number...)
-    T = promote_typeof(X...)
-    hvcat_fill(Array(T,1,length(X)), X)
-end
+vcat(V::AbstractVector...) = typed_vcat(promote_eltype(V...), V...)
+vcat{T}(V::AbstractVector{T}...) = typed_vcat(T, V...)
 
-function vcat{T}(V::AbstractVector{T}...)
+function typed_vcat(T::Type, V::AbstractVector...)
     n::Int = 0
     for Vk in V
         n += length(Vk)
     end
-    a = similar(full(V[1]), n)
+    a = similar(full(V[1]), T, n)
     pos = 1
     for k=1:length(V)
         Vk = V[k]
@@ -744,7 +745,10 @@ function vcat{T}(V::AbstractVector{T}...)
     a
 end
 
-function hcat{T}(A::AbstractVecOrMat{T}...)
+hcat(A::AbstractVecOrMat...) = typed_hcat(promote_eltype(A...), A...)
+hcat{T}(A::AbstractVecOrMat{T}...) = typed_hcat(T, A...)
+
+function typed_hcat(T::Type, A::AbstractVecOrMat...)
     nargs = length(A)
     nrows = size(A[1], 1)
     ncols = 0
@@ -758,7 +762,7 @@ function hcat{T}(A::AbstractVecOrMat{T}...)
         nd = ndims(Aj)
         ncols += (nd==2 ? size(Aj,2) : 1)
     end
-    B = similar(full(A[1]), nrows, ncols)
+    B = similar(full(A[1]), T, nrows, ncols)
     pos = 1
     if dense
         for k=1:nargs
@@ -778,7 +782,10 @@ function hcat{T}(A::AbstractVecOrMat{T}...)
     return B
 end
 
-function vcat{T}(A::AbstractMatrix{T}...)
+vcat(A::AbstractMatrix...) = typed_vcat(promote_eltype(A...), A...)
+vcat{T}(A::AbstractMatrix{T}...) = typed_vcat(T, A...)
+
+function typed_vcat(T::Type, A::AbstractMatrix...)
     nargs = length(A)
     nrows = sum(a->size(a, 1), A)::Int
     ncols = size(A[1], 2)
@@ -787,7 +794,7 @@ function vcat{T}(A::AbstractMatrix{T}...)
             throw(ArgumentError("number of columns of each array must match (got $(map(x->size(x,2), A)))"))
         end
     end
-    B = similar(full(A[1]), nrows, ncols)
+    B = similar(full(A[1]), T, nrows, ncols)
     pos = 1
     for k=1:nargs
         Ak = A[k]
@@ -1130,6 +1137,18 @@ end
 
 ## iteration utilities ##
 
+doc"""
+    foreach(f, c...) -> Void
+
+Call function `f` on each element of iterable `c`.
+For multiple iterable arguments, `f` is called elementwise.
+`foreach` should be used instead of `map` when the results of `f` are not
+needed, for example in `foreach(println, array)`.
+"""
+foreach(f) = (f(); nothing)
+foreach(f, itr) = (for x in itr; f(x); end; nothing)
+foreach(f, itrs...) = (for z in zip(itrs...); f(z...); end; nothing)
+
 # generic map on any iterator
 function map(f, iters...)
     result = []
@@ -1249,6 +1268,15 @@ function map_promote(f, A::AbstractArray)
     dest[1] = first
     return promote_to!(f, 2, dest, A)
 end
+
+# These are needed because map(eltype, As) is not inferrable
+promote_eltype_op(::Any) = (@_pure_meta; Bottom)
+promote_eltype_op{T}(op, ::AbstractArray{T}) = (@_pure_meta; promote_op(op, T))
+promote_eltype_op{T}(op, ::T               ) = (@_pure_meta; promote_op(op, T))
+promote_eltype_op{R,S}(op, ::AbstractArray{R}, ::AbstractArray{S}) = (@_pure_meta; promote_op(op, R, S))
+promote_eltype_op{R,S}(op, ::AbstractArray{R}, ::S) = (@_pure_meta; promote_op(op, R, S))
+promote_eltype_op{R,S}(op, ::R, ::AbstractArray{S}) = (@_pure_meta; promote_op(op, R, S))
+promote_eltype_op(op, A, B, C, D...) = (@_pure_meta; promote_op(op, eltype(A), promote_eltype_op(op, B, C, D...)))
 
 ## 1 argument
 map!{F}(f::F, A::AbstractArray) = map!(f, A, A)

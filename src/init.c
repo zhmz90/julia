@@ -20,6 +20,7 @@
 
 #include "julia.h"
 #include "julia_internal.h"
+#include "threading.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -76,6 +77,7 @@ jl_options_t jl_options = { 0,    // quiet
 #else
                             JL_OPTIONS_USE_PRECOMPILED_YES,
 #endif
+                            JL_OPTIONS_USE_COMPILECACHE_YES,
                             NULL, // bindto
                             NULL, // outputbc
                             NULL, // outputo
@@ -248,21 +250,14 @@ DLLEXPORT void jl_atexit_hook(int exitcode)
 
 void jl_get_builtin_hooks(void);
 
-DLLEXPORT uv_lib_t *jl_dl_handle;
-uv_lib_t _jl_RTLD_DEFAULT_handle;
-uv_lib_t *jl_RTLD_DEFAULT_handle=&_jl_RTLD_DEFAULT_handle;
+DLLEXPORT void *jl_dl_handle;
+void *jl_RTLD_DEFAULT_handle;
 #ifdef _OS_WINDOWS_
-uv_lib_t _jl_ntdll_handle;
-uv_lib_t _jl_exe_handle;
-uv_lib_t _jl_kernel32_handle;
-uv_lib_t _jl_crtdll_handle;
-uv_lib_t _jl_winsock_handle;
-
-DLLEXPORT uv_lib_t *jl_exe_handle=&_jl_exe_handle;
-uv_lib_t *jl_ntdll_handle=&_jl_ntdll_handle;
-uv_lib_t *jl_kernel32_handle=&_jl_kernel32_handle;
-uv_lib_t *jl_crtdll_handle=&_jl_crtdll_handle;
-uv_lib_t *jl_winsock_handle=&_jl_winsock_handle;
+DLLEXPORT void *jl_exe_handle;
+void *jl_ntdll_handle;
+void *jl_kernel32_handle;
+void *jl_crtdll_handle;
+void *jl_winsock_handle;
 #endif
 
 uv_loop_t *jl_io_loop;
@@ -485,22 +480,22 @@ void _julia_init(JL_IMAGE_SEARCH rel)
     }
     jl_arr_xtralloc_limit = total_mem / 100;  // Extra allocation limited to 1% of total RAM
     jl_find_stack_bottom();
-    jl_dl_handle = (uv_lib_t *) jl_load_dynamic_library(NULL, JL_RTLD_DEFAULT);
+    jl_dl_handle = jl_load_dynamic_library(NULL, JL_RTLD_DEFAULT);
 #ifdef RTLD_DEFAULT
-    jl_RTLD_DEFAULT_handle->handle = RTLD_DEFAULT;
+    jl_RTLD_DEFAULT_handle = RTLD_DEFAULT;
 #else
-    jl_RTLD_DEFAULT_handle->handle = jl_dl_handle->handle;
+    jl_RTLD_DEFAULT_handle = jl_dl_handle;
 #endif
 #ifdef _OS_WINDOWS_
-    uv_dlopen("ntdll.dll", jl_ntdll_handle); // bypass julia's pathchecking for system dlls
-    uv_dlopen("kernel32.dll", jl_kernel32_handle);
+    jl_ntdll_handle = jl_dlopen("ntdll.dll", 0); // bypass julia's pathchecking for system dlls
+    jl_kernel32_handle = jl_dlopen("kernel32.dll", 0);
 #if _MSC_VER == 1800
-    uv_dlopen("msvcr120.dll", jl_crtdll_handle);
+    jl_crtdll_handle = jl_dlopen("msvcr120.dll", 0);
 #else
-    uv_dlopen("msvcrt.dll", jl_crtdll_handle);
+    jl_crtdll_handle = jl_dlopen("msvcrt.dll", 0);
 #endif
-    uv_dlopen("ws2_32.dll", jl_winsock_handle);
-    _jl_exe_handle.handle = GetModuleHandleA(NULL);
+    jl_winsock_handle = jl_dlopen("ws2_32.dll", 0);
+    jl_exe_handle = GetModuleHandleA(NULL);
     if (!DuplicateHandle(GetCurrentProcess(), GetCurrentThread(),
                          GetCurrentProcess(), (PHANDLE)&hMainThread, 0,
                          TRUE, DUPLICATE_SAME_ACCESS)) {
@@ -511,10 +506,9 @@ void _julia_init(JL_IMAGE_SEARCH rel)
         jl_printf(JL_STDERR, "WARNING: failed to initialize stack walk info\n");
     }
     needsSymRefreshModuleList = 0;
-    uv_lib_t jl_dbghelp;
-    uv_dlopen("dbghelp.dll",&jl_dbghelp);
-    if (uv_dlsym(&jl_dbghelp, "SymRefreshModuleList", (void**)&hSymRefreshModuleList))
-        hSymRefreshModuleList = 0;
+    HMODULE jl_dbghelp = (HMODULE) jl_dlopen("dbghelp.dll", 0);
+    if (jl_dbghelp)
+        hSymRefreshModuleList = (BOOL (WINAPI*)(HANDLE)) jl_dlsym(jl_dbghelp, "SymRefreshModuleList");
 #endif
 
 #if defined(JL_USE_INTEL_JITEVENTS)
@@ -531,6 +525,21 @@ void _julia_init(JL_IMAGE_SEARCH rel)
     }
 #endif
 
+
+#if defined(__linux__)
+    int ncores = jl_cpu_cores();
+    if (ncores > 1) {
+        cpu_set_t cpumask;
+        CPU_ZERO(&cpumask);
+        for(int i=0; i < ncores; i++) {
+            CPU_SET(i, &cpumask);
+        }
+        sched_setaffinity(0, sizeof(cpu_set_t), &cpumask);
+    }
+#endif
+
+    jl_init_threading();
+
     jl_gc_init();
     jl_gc_enable(0);
     jl_init_frontend();
@@ -542,6 +551,9 @@ void _julia_init(JL_IMAGE_SEARCH rel)
     // libuv stdio cleanup depends on jl_init_tasks() because JL_TRY is used in jl_atexit_hook()
 
     jl_init_codegen();
+
+    jl_start_threads();
+
     jl_an_empty_cell = (jl_value_t*)jl_alloc_cell_1d(0);
     jl_init_serializer();
 
@@ -555,7 +567,10 @@ void _julia_init(JL_IMAGE_SEARCH rel)
         jl_internal_main_module = jl_main_module;
 
         jl_current_module = jl_core_module;
-        jl_root_task->current_module = jl_current_module;
+        int t;
+        for(t=0; t < jl_n_threads; t++) {
+            (*jl_all_task_states[t].proot_task)->current_module = jl_current_module;
+        }
 
         jl_load("boot.jl", sizeof("boot.jl"));
         jl_get_builtin_hooks();
@@ -594,10 +609,11 @@ void _julia_init(JL_IMAGE_SEARCH rel)
     if (jl_base_module != NULL) {
         jl_add_standard_imports(jl_main_module);
     }
-    // eval() uses Main by default, so Main.eval === Core.eval
-    jl_module_import(jl_main_module, jl_core_module, jl_symbol("eval"));
     jl_current_module = jl_main_module;
-    jl_root_task->current_module = jl_current_module;
+    int t;
+    for(t=0; t < jl_n_threads; t++) {
+        (*jl_all_task_states[t].proot_task)->current_module = jl_current_module;
+    }
 
     if (jl_options.handle_signals == JL_OPTIONS_HANDLE_SIGNALS_ON)
         jl_install_default_signal_handlers();
@@ -707,11 +723,14 @@ static jl_value_t *basemod(char *name)
 // fetch references to things defined in boot.jl
 void jl_get_builtin_hooks(void)
 {
-    jl_root_task->tls = jl_nothing;
-    jl_root_task->consumers = jl_nothing;
-    jl_root_task->donenotify = jl_nothing;
-    jl_root_task->exception = jl_nothing;
-    jl_root_task->result = jl_nothing;
+    int t;
+    for(t=0; t < jl_n_threads; t++) {
+        (*jl_all_task_states[t].proot_task)->tls = jl_nothing;
+        (*jl_all_task_states[t].proot_task)->consumers = jl_nothing;
+        (*jl_all_task_states[t].proot_task)->donenotify = jl_nothing;
+        (*jl_all_task_states[t].proot_task)->exception = jl_nothing;
+        (*jl_all_task_states[t].proot_task)->result = jl_nothing;
+    }
 
     jl_char_type    = (jl_datatype_t*)core("Char");
     jl_int8_type    = (jl_datatype_t*)core("Int8");

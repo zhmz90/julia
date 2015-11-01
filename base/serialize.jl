@@ -102,7 +102,7 @@ end
 serialize(s::SerializationState, x::Bool) = x ? writetag(s.io, TRUE_TAG) :
                                                 writetag(s.io, FALSE_TAG)
 
-serialize(s::SerializationState, ::Ptr) = error("cannot serialize a pointer")
+serialize(s::SerializationState, p::Ptr) = serialize_any(s, oftype(p, C_NULL))
 
 serialize(s::SerializationState, ::Tuple{}) = writetag(s.io, EMPTYTUPLE_TAG)
 
@@ -147,7 +147,7 @@ end
 
 function serialize_array_data(s::IO, a)
     elty = eltype(a)
-    if elty === Bool && length(a)>0
+    if elty === Bool && !isempty(a)
         last = a[1]
         count = 1
         for i = 2:length(a)
@@ -202,7 +202,7 @@ end
 
 function serialize{T<:AbstractString}(s::SerializationState, ss::SubString{T})
     # avoid saving a copy of the parent string, keeping the type of ss
-    invoke(serialize, Tuple{SerializationState,Any}, s, convert(SubString{T}, convert(T,ss)))
+    serialize_any(s, convert(SubString{T}, convert(T,ss)))
 end
 
 # Don't serialize the pointers
@@ -332,9 +332,9 @@ function serialize(s::SerializationState, linfo::LambdaStaticData)
     serialize(s, lambda_number(linfo))
     serialize(s, uncompressed_ast(linfo))
     if isdefined(linfo.def, :roots)
-        serialize(s, linfo.def.roots)
+        serialize(s, linfo.def.roots::Vector{Any})
     else
-        serialize(s, [])
+        serialize(s, Any[])
     end
     serialize(s, linfo.sparams)
     serialize(s, linfo.inferred)
@@ -364,7 +364,7 @@ function serialize_type_data(s, t)
     serialize(s, tname)
     mod = t.name.module
     serialize(s, mod)
-    if length(t.parameters) > 0
+    if !isempty(t.parameters)
         if isdefined(mod,tname) && is(t,getfield(mod,tname))
             serialize(s, svec())
         else
@@ -402,7 +402,9 @@ function serialize(s::SerializationState, n::Int)
     write(s.io, n)
 end
 
-function serialize(s::SerializationState, x)
+serialize(s::SerializationState, x) = serialize_any(s, x)
+
+function serialize_any(s::SerializationState, x)
     tag = sertag(x)
     if tag > 0
         return write_as_tag(s.io, tag)
@@ -551,11 +553,11 @@ function deserialize(s::SerializationState, ::Type{LambdaStaticData})
         makenew = true
     end
     deserialize_cycle(s, linfo)
-    ast = deserialize(s)
-    roots = deserialize(s)
-    sparams = deserialize(s)
-    infr = deserialize(s)
-    mod = deserialize(s)
+    ast = deserialize(s)::Expr
+    roots = deserialize(s)::Vector{Any}
+    sparams = deserialize(s)::SimpleVector
+    infr = deserialize(s)::Bool
+    mod = deserialize(s)::Module
     capt = deserialize(s)
     if makenew
         linfo.ast = ast
@@ -564,7 +566,7 @@ function deserialize(s::SerializationState, ::Type{LambdaStaticData})
         linfo.module = mod
         linfo.roots = roots
         if !is(capt,nothing)
-            linfo.capt = capt
+            linfo.capt = capt::Vector{Any}
         end
         known_lambda_data[lnumber] = linfo
     end
@@ -637,7 +639,7 @@ function deserialize_datatype(s::SerializationState)
     name = deserialize(s)::Symbol
     mod = deserialize(s)::Module
     ty = getfield(mod,name)
-    if length(ty.parameters) == 0
+    if isempty(ty.parameters)
         t = ty
     else
         params = deserialize(s)
@@ -648,8 +650,6 @@ function deserialize_datatype(s::SerializationState)
     end
     deserialize(s, t)
 end
-
-deserialize{T}(s::SerializationState, ::Type{Ptr{T}}) = convert(Ptr{T}, 0)
 
 function deserialize(s::SerializationState, ::Type{Task})
     t = Task(()->nothing)

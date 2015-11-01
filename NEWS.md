@@ -9,6 +9,8 @@ Language changes
 
   * `using` and `import` are now case-sensitive even on case-insensitive filesystems (common on Mac and Windows) ([#13542]).
 
+  * Relational symbols are now allowed as infix operators ([#8036]).
+
 Command-line option changes
 ---------------------------
 
@@ -43,18 +45,33 @@ Library improvements
 
   * `cov` and `cor` don't use keyword arguments anymore and are therefore now type stable ([#13465]).
 
-  * New method for generic QR with column pivoting ([#13480]).
+  * Linear algebra:
 
-  * A new `SparseVector` type allows for one-dimensional sparse arrays. Slicing
-    and reshaping sparse matrices now return vectors when appropriate. The
-    `sparsevec` function returns a one-dimensional sparse vector instead of a
-    one-column sparse matrix.
+    * New `normalize` and `normalize!` convenience functions for normalizing
+      vectors ([#13681]).
+
+    * QR
+
+      * New method for generic QR with column pivoting ([#13480]).
+
+      * New method for polar decompositions of `AbstractVector`s ([#13681]).
+
+    * A new `SparseVector` type allows for one-dimensional sparse arrays.
+      Slicing and reshaping sparse matrices now return vectors when
+      appropriate. The `sparsevec` function returns a one-dimensional sparse
+      vector instead of a one-column sparse matrix. ([#13440])
+
+  * New `foreach` function for calling a function on every element of a collection when
+    the results are not needed.
 
 Deprecated or removed
 ---------------------
 
-  * The method `A_ldiv_B!(SparseMatrixCSC, StrideVecOrMat)` has been deprecated in favor
-    of versions that require the matrix to in factored form ([#13496]).
+  * The method `A_ldiv_B!(SparseMatrixCSC, StrideVecOrMat)` has been deprecated
+    in favor of versions that require the matrix to be in factored form
+    ([#13496]).
+
+  * Deprecate `chol(A,Val{:U/:L})` in favor of `chol(A)` ([#13680]).
 
 Julia v0.4.0 Release Notes
 ==========================

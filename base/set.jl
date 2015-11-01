@@ -28,7 +28,7 @@ length(s::Set)  = length(s.dict)
 in(x, s::Set) = haskey(s.dict, x)
 push!(s::Set, x) = (s.dict[x] = nothing; s)
 pop!(s::Set, x) = (pop!(s.dict, x); x)
-pop!(s::Set, x, deflt) = pop!(s.dict, x, deflt) == deflt ? deflt : x
+pop!(s::Set, x, deflt) = x in s ? pop!(s, x) : deflt
 pop!(s::Set) = (idx = start(s.dict); val = s.dict.keys[idx]; _delete!(s.dict, idx); val)
 delete!(s::Set, x) = (delete!(s.dict, x); s)
 
@@ -115,6 +115,11 @@ function unique(C)
     out
 end
 
+doc"""
+    unique(f, itr)
+
+Returns an array containing one value from `itr` for each unique value produced by `f` applied to elements of `itr`.
+"""
 function unique(f::Callable, C)
     out = Vector{eltype(C)}()
     seen = Set()

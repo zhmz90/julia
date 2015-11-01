@@ -1233,7 +1233,7 @@ b = rand(6,7)
 # return type declarations (promote_op)
 module RetTypeDecl
     using Base.Test
-    import Base: +, *, .*
+    import Base: +, *, .*, zero
 
     immutable MeterUnits{T,P} <: Number
         val::T
@@ -1243,9 +1243,11 @@ module RetTypeDecl
     m  = MeterUnits(1.0, 1)   # 1.0 meter, i.e. units of length
     m2 = MeterUnits(1.0, 2)   # 1.0 meter^2, i.e. units of area
 
-    (+){T}(x::MeterUnits{T,1}, y::MeterUnits{T,1}) = MeterUnits{T,1}(x.val+y.val)
+    (+){T,pow}(x::MeterUnits{T,pow}, y::MeterUnits{T,pow}) = MeterUnits{T,pow}(x.val+y.val)
+    (*){T,pow}(x::Int, y::MeterUnits{T,pow}) = MeterUnits{typeof(x*one(T)),pow}(x*y.val)
     (*){T}(x::MeterUnits{T,1}, y::MeterUnits{T,1}) = MeterUnits{T,2}(x.val*y.val)
     (.*){T}(x::MeterUnits{T,1}, y::MeterUnits{T,1}) = MeterUnits{T,2}(x.val*y.val)
+    zero{T,pow}(x::MeterUnits{T,pow}) = MeterUnits{T,pow}(zero(T))
 
     Base.promote_op{R,S}(::Base.AddFun, ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),1}
     Base.promote_op{R,S}(::Base.MulFun, ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),2}
@@ -1255,6 +1257,8 @@ module RetTypeDecl
     @test @inferred([m,m]+m) == [m+m,m+m]
     @test @inferred(m.*[m,m]) == [m2,m2]
     @test @inferred([m,m].*m) == [m2,m2]
+    @test @inferred([m 2m; m m]*[m,m]) == [3m2,2m2]
+    @test @inferred([m m].*[m,m]) == [m2 m2; m2 m2]
 end
 
 # range, range ops
@@ -1347,3 +1351,65 @@ x13250[UInt(1):UInt(2)] = 1.0
 @test x13250[1] == 1.0
 @test x13250[2] == 1.0
 @test x13250[3] == 0.0
+
+immutable SquaresVector <: AbstractArray{Int, 1}
+    count::Int
+end
+Base.size(S::SquaresVector) = (S.count,)
+Base.linearindexing(::Type{SquaresVector}) = Base.LinearFast()
+Base.getindex(S::SquaresVector, i::Int) = i*i
+foo_squares = SquaresVector(5)
+@test convert(Array{Int}, foo_squares) == [1,4,9,16,25]
+@test convert(Array{Int, 1}, foo_squares) == [1,4,9,16,25]
+
+# issue #13254
+let A = zeros(Int, 2, 2), B = zeros(Float64, 2, 2)
+    f1() = [1]
+    f2() = [1;]
+    f3() = [1;2]
+    f4() = [1;2.0]
+    f5() = [1 2]
+    f6() = [1 2.0]
+    f7() = Int[1]
+    f8() = Float64[1]
+    f9() = Int[1;]
+    f10() = Float64[1;]
+    f11() = Int[1;2]
+    f12() = Float64[1;2]
+    f13() = Int[1;2.0]
+    f14() = Int[1 2]
+    f15() = Float64[1 2]
+    f16() = Int[1 2.0]
+    f17() = [1:2;]
+    f18() = Int[1:2;]
+    f19() = Float64[1:2;]
+    f20() = [1:2;1:2]
+    f21() = Int[1:2;1:2]
+    f22() = Float64[1:2;1:2]
+    f23() = [1:2;1.0:2.0]
+    f24() = Int[1:2;1.0:2.0]
+    f25() = [1:2 1:2]
+    f26() = Int[1:2 1:2]
+    f27() = Float64[1:2 1:2]
+    f28() = [1:2 1.0:2.0]
+    f29() = Int[1:2 1.0:2.0]
+    f30() = [A;]
+    f31() = Int[A;]
+    f32() = Float64[A;]
+    f33() = [A;A]
+    f34() = Int[A;A]
+    f35() = Float64[A;A]
+    f36() = [A;B]
+    f37() = Int[A;B]
+    f38() = [A A]
+    f39() = Int[A A]
+    f40() = Float64[A A]
+    f41() = [A B]
+    f42() = Int[A B]
+
+    for f in [f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, f14, f15, f16,
+              f17, f18, f19, f20, f21, f22, f23, f24, f25, f26, f27, f28, f29, f30,
+              f31, f32, f33, f34, f35, f36, f37, f38, f39, f40, f41, f42]
+        @test isleaftype(Base.return_types(f, ())[1])
+    end
+end

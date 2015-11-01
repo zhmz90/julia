@@ -54,6 +54,8 @@ debug && println("QR decomposition (without pivoting)")
                 @test_approx_eq_eps A_mul_Bc(eye(eltyb,size(q.factors,2)),q)*full(q, thin=false) eye(n) 5000ε
                 if eltya != Int
                     @test eye(eltyb,n)*q ≈ convert(AbstractMatrix{tab},q)
+                    ac = copy(a)
+                    @test qrfact!(a[:, 1:5])\b == qrfact!(sub(ac, :, 1:5))\b
                 end
 
 debug && println("Thin QR decomposition (without pivoting)")
@@ -158,7 +160,22 @@ end
 
 #Issue 7304
 let
-    A=[-√.5 -√.5; -√.5 √.5]
-    Q=full(qrfact(A)[:Q])
+    A = [-√.5 -√.5; -√.5 √.5]
+    Q = full(qrfact(A)[:Q])
     @test vecnorm(A-Q) < eps()
 end
+
+let
+    debug && println("qr on AbstractVector")
+
+    vr = [3.0, 4.0]
+    for Tr in (Float32, Float64)
+        for T in (Tr, Complex{Tr})
+            v = convert(Vector{T}, vr)
+            nv, nm = qr(v)
+            @test norm(nv - [0.6, 0.8], Inf) < eps(Tr)
+            @test nm == 5.0
+        end
+    end
+end
+

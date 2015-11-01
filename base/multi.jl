@@ -652,7 +652,7 @@ function run_work_thunk(thunk, print_error)
     catch err
         ce = CapturedException(err, catch_backtrace())
         result = RemoteException(ce)
-        print_error && print(STDERR, ce)
+        print_error && showerror(STDERR, ce)
     end
     result
 end
@@ -749,8 +749,9 @@ function remotecall_wait(f, w::Worker, args...)
     rv.waitingfor = w.id
     rr = RemoteRef(w)
     send_msg(w, CallWaitMsg(f, args, rr2id(rr), prid))
-    wait(rv)
+    v = fetch(rv.c)
     delete!(PGRP.refs, prid)
+    isa(v, RemoteException) && throw(v)
     rr
 end
 
@@ -783,8 +784,18 @@ function call_on_owner(f, rr::RemoteRef, args...)
     end
 end
 
-wait_ref(rid, args...) = (wait(lookup_ref(rid).c, args...); nothing)
-wait(r::RemoteRef, args...) = (call_on_owner(wait_ref, r, args...); r)
+function wait_ref(rid, callee, args...)
+    v = fetch_ref(rid, args...)
+    if isa(v, RemoteException)
+        if myid() == callee
+            throw(v)
+        else
+            return v
+        end
+    end
+    nothing
+end
+wait(r::RemoteRef, args...) = (call_on_owner(wait_ref, r, myid(), args...); r)
 
 fetch_ref(rid, args...) = fetch(lookup_ref(rid).c, args...)
 fetch(r::RemoteRef, args...) = call_on_owner(fetch_ref, r, args...)
@@ -796,8 +807,12 @@ put_ref(rid, args...) = put!(lookup_ref(rid), args...)
 put!(rr::RemoteRef, args...) = (call_on_owner(put_ref, rr, args...); rr)
 
 take!(rv::RemoteValue, args...) = take!(rv.c, args...)
-take_ref(rid, args...) = take!(lookup_ref(rid), args...)
-take!(rr::RemoteRef, args...) = call_on_owner(take_ref, rr, args...)
+function take_ref(rid, callee, args...)
+    v=take!(lookup_ref(rid), args...)
+    isa(v, RemoteException) && (myid() == callee) && throw(v)
+    v
+end
+take!(rr::RemoteRef, args...) = call_on_owner(take_ref, rr, myid(), args...)
 
 close_ref(rid) = (close(lookup_ref(rid).c); nothing)
 close(rr::RemoteRef) = call_on_owner(close_ref, rr)
@@ -805,10 +820,10 @@ close(rr::RemoteRef) = call_on_owner(close_ref, rr)
 
 function deliver_result(sock::IO, msg, oid, value)
     #print("$(myid()) sending result $oid\n")
-    if is(msg,:call_fetch)
+    if is(msg,:call_fetch) || isa(value, RemoteException)
         val = value
     else
-        val = oid
+        val = :OK
     end
     try
         send_msg_now(sock, ResultMsg(oid, val))
@@ -903,7 +918,7 @@ end
 function handle_msg(msg::CallWaitMsg, r_stream, w_stream)
     @schedule begin
         rv = schedule_call(msg.response_oid, ()->msg.f(msg.args...))
-        deliver_result(w_stream, :call_wait, msg.notify_oid, wait(rv))
+        deliver_result(w_stream, :call_wait, msg.notify_oid, fetch(rv.c))
     end
 end
 
@@ -1121,13 +1136,13 @@ function addprocs_locked(manager::ClusterManager; kwargs...)
 
     @sync begin
         while true
-            if length(launched) == 0
+            if isempty(launched)
                 istaskdone(t_launch) && break
                 @schedule (sleep(1); notify(launch_ntfy))
                 wait(launch_ntfy)
             end
 
-            if (length(launched) > 0)
+            if !isempty(launched)
                 wconfig = shift!(launched)
                 let wconfig=wconfig
                     @async setup_launched_worker(manager, wconfig, launched_q)
@@ -1291,7 +1306,7 @@ function launch_additional(np::Integer, cmd::Cmd)
     addresses = cell(np)
 
     for i in 1:np
-        io, pobj = open(detach(cmd), "r")
+        io, pobj = open(pipeline(detach(cmd), stderr=STDERR), "r")
         io_objs[i] = io
     end
 

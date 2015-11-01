@@ -543,7 +543,12 @@ JL_CALLABLE(jl_f_kwcall)
 
 extern int jl_lineno;
 
-DLLEXPORT jl_value_t *jl_toplevel_eval_in(jl_module_t *m, jl_value_t *ex, int delay_warn)
+DLLEXPORT jl_value_t *jl_toplevel_eval_in(jl_module_t *m, jl_value_t *ex)
+{
+    return jl_toplevel_eval_in_warn(m, ex, 0);
+}
+
+DLLEXPORT jl_value_t *jl_toplevel_eval_in_warn(jl_module_t *m, jl_value_t *ex, int delay_warn)
 {
     static int jl_warn_on_eval = 0;
     int last_delay_warn = jl_warn_on_eval;
@@ -585,23 +590,6 @@ DLLEXPORT jl_value_t *jl_toplevel_eval_in(jl_module_t *m, jl_value_t *ex, int de
     jl_current_task->current_module = task_last_m;
     assert(v);
     return v;
-}
-
-JL_CALLABLE(jl_f_top_eval)
-{
-    jl_module_t *m;
-    jl_value_t *ex;
-    if (nargs == 1) {
-        m = jl_main_module;
-        ex = args[0];
-    }
-    else {
-        JL_NARGS(eval, 2, 2);
-        JL_TYPECHK(eval, module, args[0]);
-        m = (jl_module_t*)args[0];
-        ex = args[1];
-    }
-    return jl_toplevel_eval_in(m, ex, 0);
 }
 
 JL_CALLABLE(jl_f_isdefined)
@@ -966,6 +954,8 @@ extern int jl_in_inference;
 extern int jl_boot_file_loaded;
 int jl_eval_with_compiler_p(jl_expr_t *ast, jl_expr_t *expr, int compileloops, jl_module_t *m);
 
+JL_DEFINE_MUTEX_EXT(codegen)
+
 static int jl_eval_inner_with_compiler(jl_expr_t *e, jl_module_t *m)
 {
     int i;
@@ -987,47 +977,47 @@ static int jl_eval_inner_with_compiler(jl_expr_t *e, jl_module_t *m)
     return 0;
 }
 
-void jl_trampoline_compile_function(jl_function_t *f, int always_infer, jl_tupletype_t *sig)
+void jl_trampoline_compile_linfo(jl_lambda_info_t *linfo, int always_infer)
 {
-    assert(sig);
-    assert(f->linfo != NULL);
+    JL_LOCK(codegen)
+    assert(linfo);
+    assert(linfo->specTypes);
     // to run inference on all thunks. slows down loading files.
     // NOTE: if this call to inference is removed, type_annotate in inference.jl
     // needs to be updated to infer inner functions.
-    if (f->linfo->inferred == 0) {
+    if (linfo->inferred == 0) {
         if (!jl_in_inference) {
-            if (!jl_is_expr(f->linfo->ast)) {
-                f->linfo->ast = jl_uncompress_ast(f->linfo, f->linfo->ast);
-                jl_gc_wb(f->linfo, f->linfo->ast);
+            if (!jl_is_expr(linfo->ast)) {
+                linfo->ast = jl_uncompress_ast(linfo, linfo->ast);
+                jl_gc_wb(linfo, linfo->ast);
             }
-            assert(jl_is_expr(f->linfo->ast));
+            assert(jl_is_expr(linfo->ast));
             if (always_infer ||
-                jl_eval_with_compiler_p((jl_expr_t*)f->linfo->ast, jl_lam_body((jl_expr_t*)f->linfo->ast), 1, f->linfo->module) ||
+                jl_eval_with_compiler_p((jl_expr_t*)linfo->ast, jl_lam_body((jl_expr_t*)linfo->ast), 1, linfo->module) ||
                 // if this function doesn't need to be compiled, but contains inner
                 // functions that do and that capture variables, we need to run
                 // inference on the whole thing to propagate types into the inner
                 // functions. caused issue #12794
-                jl_eval_inner_with_compiler(jl_lam_body((jl_expr_t*)f->linfo->ast), f->linfo->module)) {
-                jl_type_infer(f->linfo, sig, f->linfo);
+                jl_eval_inner_with_compiler(jl_lam_body((jl_expr_t*)linfo->ast), linfo->module)) {
+                jl_type_infer(linfo, linfo->specTypes, linfo);
             }
         }
     }
-    jl_compile(f);
-    // this assertion is probably not correct; the fptr could have been assigned
-    // by a recursive invocation from inference above.
-    //assert(f->fptr == &jl_trampoline);
-    jl_generate_fptr(f);
-    if (jl_boot_file_loaded && jl_is_expr(f->linfo->ast)) {
-        f->linfo->ast = jl_compress_ast(f->linfo, f->linfo->ast);
-        jl_gc_wb(f->linfo, f->linfo->ast);
+    jl_compile_linfo(linfo);
+    if (jl_boot_file_loaded && jl_is_expr(linfo->ast)) {
+        linfo->ast = jl_compress_ast(linfo, linfo->ast);
+        jl_gc_wb(linfo, linfo->ast);
     }
+    JL_UNLOCK(codegen)
 }
 
 JL_CALLABLE(jl_trampoline)
 {
     assert(jl_is_func(F));
     jl_function_t *f = (jl_function_t*)F;
-    jl_trampoline_compile_function(f, 0, f->linfo->specTypes ? f->linfo->specTypes : jl_anytuple_type);
+    if (!f->linfo->specTypes) f->linfo->specTypes = jl_anytuple_type; // no gc_wb needed
+    jl_trampoline_compile_linfo(f->linfo, 0);
+    jl_generate_fptr(f);
     return jl_apply(f, args, nargs);
 }
 
@@ -1055,29 +1045,6 @@ static void jl_check_type_tuple(jl_value_t *t, jl_sym_t *name, const char *ctx)
 {
     if (!jl_is_tuple_type(t))
         jl_type_error_rt(name->name, ctx, (jl_value_t*)jl_type_type, t);
-}
-
-JL_CALLABLE(jl_f_methodexists)
-{
-    JL_NARGS(method_exists, 2, 2);
-    JL_TYPECHK(method_exists, function, args[0]);
-    if (!jl_is_gf(args[0]))
-        jl_error("method_exists: not a generic function");
-    jl_value_t *argtypes = args[1];
-    JL_GC_PUSH1(&argtypes);
-    if (jl_is_tuple(args[1])) {
-        // TODO: maybe deprecation warning, better checking
-        argtypes = (jl_value_t*)jl_apply_tuple_type_v((jl_value_t**)jl_data_ptr(argtypes),
-                                                      jl_nfields(argtypes));
-    }
-    else {
-        jl_check_type_tuple(args[1], jl_gf_name(args[0]), "method_exists");
-    }
-    jl_value_t *res = jl_method_lookup_by_type(jl_gf_mtable(args[0]),
-                                               (jl_tupletype_t*)argtypes,0,0)!=jl_bottom_func ?
-        jl_true : jl_false;
-    JL_GC_POP();
-    return res;
 }
 
 JL_CALLABLE(jl_f_applicable)
@@ -1228,30 +1195,31 @@ void jl_init_primitives(void)
     add_builtin_func("issubtype", jl_f_subtype);
     add_builtin_func("isa", jl_f_isa);
     add_builtin_func("typeassert", jl_f_typeassert);
-    add_builtin_func("_apply", jl_f_apply);
-    add_builtin_func("kwcall", jl_f_kwcall);
     add_builtin_func("throw", jl_f_throw);
     add_builtin_func("tuple", jl_f_tuple);
-    add_builtin_func("svec", jl_f_svec);
-    add_builtin_func("method_exists", jl_f_methodexists);
-    add_builtin_func("applicable", jl_f_applicable);
-    add_builtin_func("invoke", jl_f_invoke);
-    add_builtin_func("eval", jl_f_top_eval);
-    add_builtin_func("isdefined", jl_f_isdefined);
 
-    // functions for internal use
+    // field access
     add_builtin_func("getfield",  jl_f_get_field);
     add_builtin_func("setfield!",  jl_f_set_field);
     add_builtin_func("fieldtype", jl_f_field_type);
     add_builtin_func("nfields", jl_f_nfields);
-    add_builtin_func("_expr", jl_f_new_expr);
+    add_builtin_func("isdefined", jl_f_isdefined);
 
-    add_builtin_func("arraylen", jl_f_arraylen);
+    // array primitives
     add_builtin_func("arrayref", jl_f_arrayref);
     add_builtin_func("arrayset", jl_f_arrayset);
     add_builtin_func("arraysize", jl_f_arraysize);
 
+    // method table utils
+    add_builtin_func("applicable", jl_f_applicable);
+    add_builtin_func("invoke", jl_f_invoke);
+
+    // internal functions
     add_builtin_func("apply_type", jl_f_instantiate_type);
+    add_builtin_func("_apply", jl_f_apply);
+    add_builtin_func("kwcall", jl_f_kwcall);
+    add_builtin_func("_expr", jl_f_new_expr);
+    add_builtin_func("svec", jl_f_svec);
 
     // builtin types
     add_builtin("Any", (jl_value_t*)jl_any_type);

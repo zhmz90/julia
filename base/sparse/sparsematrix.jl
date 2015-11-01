@@ -278,7 +278,7 @@ function sparse_IJ_sorted!{Ti<:Integer}(I::AbstractVector{Ti}, J::AbstractVector
 
     m = m < 0 ? 0 : m
     n = n < 0 ? 0 : n
-    if length(V) == 0; return spzeros(eltype(V),Ti,m,n); end
+    if isempty(V); return spzeros(eltype(V),Ti,m,n); end
 
     cols = zeros(Ti, n+1)
     cols[1] = 1  # For cumsum purposes
@@ -320,7 +320,7 @@ end
 
 ## sparse() can take its inputs in unsorted order (the parent method is now in csparse.jl)
 
-dimlub(I) = length(I)==0 ? 0 : Int(maximum(I)) #least upper bound on required sparse matrix dimension
+dimlub(I) = isempty(I) ? 0 : Int(maximum(I)) #least upper bound on required sparse matrix dimension
 
 sparse(I,J,v::Number) = sparse(I, J, fill(v,length(I)), dimlub(I), dimlub(J), AddFun())
 
@@ -700,8 +700,8 @@ function gen_broadcast_body_sparse(f::Function, is_first_sparse::Bool)
         colptr1 = A_1.colptr; rowval1 = A_1.rowval; nzval1 = A_1.nzval
         colptr2 = A_2.colptr; rowval2 = A_2.rowval; nzval2 = A_2.nzval
 
-        nnzB = nnz(A_1) * div(B.n, A_1.n) * div(B.m, A_1.m)  +
-               nnz(A_2) * div(B.n, A_2.n) * div(B.m, A_2.m)
+        nnzB = isempty(B) ? 0 : (nnz(A_1) * div(B.n, A_1.n) * div(B.m, A_1.m)  +
+                                 nnz(A_2) * div(B.n, A_2.n) * div(B.m, A_2.m))
         if length(rowvalB) < nnzB
             resize!(rowvalB, nnzB)
         end
@@ -860,7 +860,8 @@ function gen_broadcast_body_zpreserving(f::Function, is_first_sparse::Bool)
         Base.Broadcast.check_broadcast_shape(size(B), $A1)
         Base.Broadcast.check_broadcast_shape(size(B), $A2)
 
-        nnzB = nnz($A1) * div(B.n, ($A1).n) * div(B.m, ($A1).m)
+        nnzB = isempty(B) ? 0 :
+               nnz($A1) * div(B.n, ($A1).n) * div(B.m, ($A1).m)
         if length(B.rowval) < nnzB
             resize!(B.rowval, nnzB)
         end
@@ -972,7 +973,7 @@ end # macro
 (.-)(A::Number, B::SparseMatrixCSC) = A .- full(B)
 ( -)(A::Array , B::SparseMatrixCSC) = A  - full(B)
 
-(.*)(A::AbstractArray, B::AbstractArray) = broadcast_zpreserving(*, A, B)
+(.*)(A::AbstractArray, B::AbstractArray) = broadcast_zpreserving(MulFun(), A, B)
 (.*)(A::SparseMatrixCSC, B::Number) = SparseMatrixCSC(A.m, A.n, copy(A.colptr), copy(A.rowval), A.nzval .* B)
 (.*)(A::Number, B::SparseMatrixCSC) = SparseMatrixCSC(B.m, B.n, copy(B.colptr), copy(B.rowval), A .* B.nzval)
 

@@ -111,11 +111,17 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    ``lufact!`` is the same as :func:`lufact`, but saves space by overwriting the input ``A``, instead of creating a copy.  For sparse ``A`` the ``nzval`` field is not overwritten but the index fields, ``colptr`` and ``rowval`` are decremented in place, converting from 1-based indices to 0-based indices.
 
-.. function:: chol(A, [LU]) -> F
+.. function:: chol(A::AbstractMatrix) -> U
 
    .. Docstring generated from Julia source
 
-   Compute the Cholesky factorization of a symmetric positive definite matrix ``A`` and return the matrix ``F``\ . If ``LU`` is ``Val{:U}`` (Upper), ``F`` is of type ``UpperTriangular`` and ``A = F'*F``\ . If ``LU`` is ``Val{:L}`` (Lower), ``F`` is of type ``LowerTriangular`` and ``A = F*F'``\ . ``LU`` defaults to ``Val{:U}``\ .
+   Compute the Cholesky factorization of a positive definite matrix ``A`` and return the UpperTriangular matrix ``U`` such that ``A = U'U``\ .
+
+.. function:: chol(x::Number) -> y
+
+   .. Docstring generated from Julia source
+
+   Compute the square root of a non-negative number ``x``\ .
 
 .. function:: cholfact(A, [LU=:U[,pivot=Val{false}]][;tol=-1.0]) -> Cholesky
 
@@ -725,9 +731,10 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    For inverting dense ill-conditioned matrices in a least-squares sense,
    ``tol = sqrt(eps(real(float(one(eltype(M))))))`` is recommended.
 
-   For more information, see [8859]_, [B96]_, [S84]_, [KY88]_.
+   For more information, see [issue8859]_, [B96]_, [S84]_, [KY88]_.
 
-   .. [8859] Issue 8859, "Fix least squares", https://github.com/JuliaLang/julia/pull/8859
+   .. [issue8859] Issue 8859, "Fix least squares",
+      https://github.com/JuliaLang/julia/pull/8859
    .. [B96] Åke Björck, "Numerical Methods for Least Squares Problems",
       SIAM Press, Philadelphia, 1996, "Other Titles in Applied Mathematics", Vol. 51.
       `doi:10.1137/1.9781611971484 <http://epubs.siam.org/doi/book/10.1137/1.9781611971484>`_
@@ -780,12 +787,12 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. code-block:: julia
 
-          using PyPlot
-          x = [1.0:12.0;]
-          y = [5.5, 6.3, 7.6, 8.8, 10.9, 11.79, 13.48, 15.02, 17.77, 20.81, 22.0, 22.99]
-          a, b = linreg(x, y)          # Linear regression
-          plot(x, y, "o")              # Plot (x, y) points
-          plot(x, [a+b*i for i in x])  # Plot line determined by linear regression
+       using PyPlot
+       x = [1.0:12.0;]
+       y = [5.5, 6.3, 7.6, 8.8, 10.9, 11.79, 13.48, 15.02, 17.77, 20.81, 22.0, 22.99]
+       a, b = linreg(x, y)          # Linear regression
+       plot(x, y, "o")              # Plot (x, y) points
+       plot(x, [a+b*i for i in x])  # Plot line determined by linear regression
 
 .. function:: linreg(x, y, w)
 
@@ -926,29 +933,29 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    real symmetric or general nonsymmetric matrices respectively.
 
    The following keyword arguments are supported:
-    * ``nev``: Number of eigenvalues
-    * ``ncv``: Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n`` for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the size of the input matrix ``A``. The default is ``ncv = max(20,2*nev+1)``.
 
-      Note that these restrictions limit the input matrix ``A`` to be of dimension at least 2.
-    * ``which``: type of eigenvalues to compute. See the note below.
+   * ``nev``: Number of eigenvalues
+   * ``ncv``: Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n`` for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the size of the input matrix ``A``. The default is ``ncv = max(20,2*nev+1)``.
+     Note that these restrictions limit the input matrix ``A`` to be of dimension at least 2.
+   * ``which``: type of eigenvalues to compute. See the note below.
 
-      ========= ======================================================================================================================
-      ``which`` type of eigenvalues
-      ========= ======================================================================================================================
-      ``:LM``   eigenvalues of largest magnitude (default)
-      ``:SM``   eigenvalues of smallest magnitude
-      ``:LR``   eigenvalues of largest real part
-      ``:SR``   eigenvalues of smallest real part
-      ``:LI``   eigenvalues of largest imaginary part (nonsymmetric or complex ``A`` only)
-      ``:SI``   eigenvalues of smallest imaginary part (nonsymmetric or complex ``A`` only)
-      ``:BE``   compute half of the eigenvalues from each end of the spectrum, biased in favor of the high end. (real symmetric ``A`` only)
-      ========= ======================================================================================================================
+     ========= ======================================================================================================================
+     ``which`` type of eigenvalues
+     ========= ======================================================================================================================
+     ``:LM``   eigenvalues of largest magnitude (default)
+     ``:SM``   eigenvalues of smallest magnitude
+     ``:LR``   eigenvalues of largest real part
+     ``:SR``   eigenvalues of smallest real part
+     ``:LI``   eigenvalues of largest imaginary part (nonsymmetric or complex ``A`` only)
+     ``:SI``   eigenvalues of smallest imaginary part (nonsymmetric or complex ``A`` only)
+     ``:BE``   compute half of the eigenvalues from each end of the spectrum, biased in favor of the high end. (real symmetric ``A`` only)
+     ========= ======================================================================================================================
 
-    * ``tol``: tolerance (:math:`tol \le 0.0` defaults to ``DLAMCH('EPS')``)
-    * ``maxiter``: Maximum number of iterations (default = 300)
-    * ``sigma``: Specifies the level shift used in inverse iteration. If ``nothing`` (default), defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma`` using shift and invert iterations.
-    * ``ritzvec``: Returns the Ritz vectors ``v`` (eigenvectors) if ``true``
-    * ``v0``: starting vector from which to start the iterations
+   * ``tol``: tolerance (:math:`tol \le 0.0` defaults to ``DLAMCH('EPS')``)
+   * ``maxiter``: Maximum number of iterations (default = 300)
+   * ``sigma``: Specifies the level shift used in inverse iteration. If ``nothing`` (default), defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma`` using shift and invert iterations.
+   * ``ritzvec``: Returns the Ritz vectors ``v`` (eigenvectors) if ``true``
+   * ``v0``: starting vector from which to start the iterations
 
    ``eigs`` returns the ``nev`` requested eigenvalues in ``d``, the corresponding Ritz vectors ``v`` (only if ``ritzvec=true``), the number of converged eigenvalues ``nconv``, the number of iterations ``niter`` and the number of matrix vector multiplications ``nmult``, as well as the final residual vector ``resid``.
 
@@ -969,29 +976,29 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    real symmetric or general nonsymmetric matrices respectively.
 
    The following keyword arguments are supported:
-    * ``nev``: Number of eigenvalues
-    * ``ncv``: Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n`` for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the size of the input matrices ``A`` and ``B``. The default is ``ncv = max(20,2*nev+1)``.
 
-      Note that these restrictions limit the input matrix ``A`` to be of dimension at least 2.
-    * ``which``: type of eigenvalues to compute. See the note below.
+   * ``nev``: Number of eigenvalues
+   * ``ncv``: Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n`` for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the size of the input matrices ``A`` and ``B``. The default is ``ncv = max(20,2*nev+1)``.
+     Note that these restrictions limit the input matrix ``A`` to be of dimension at least 2.
+   * ``which``: type of eigenvalues to compute. See the note below.
 
-      ========= ======================================================================================================================
-      ``which`` type of eigenvalues
-      ========= ======================================================================================================================
-      ``:LM``   eigenvalues of largest magnitude (default)
-      ``:SM``   eigenvalues of smallest magnitude
-      ``:LR``   eigenvalues of largest real part
-      ``:SR``   eigenvalues of smallest real part
-      ``:LI``   eigenvalues of largest imaginary part (nonsymmetric or complex ``A`` only)
-      ``:SI``   eigenvalues of smallest imaginary part (nonsymmetric or complex ``A`` only)
-      ``:BE``   compute half of the eigenvalues from each end of the spectrum, biased in favor of the high end. (real symmetric ``A`` only)
-      ========= ======================================================================================================================
+     ========= ======================================================================================================================
+     ``which`` type of eigenvalues
+     ========= ======================================================================================================================
+     ``:LM``   eigenvalues of largest magnitude (default)
+     ``:SM``   eigenvalues of smallest magnitude
+     ``:LR``   eigenvalues of largest real part
+     ``:SR``   eigenvalues of smallest real part
+     ``:LI``   eigenvalues of largest imaginary part (nonsymmetric or complex ``A`` only)
+     ``:SI``   eigenvalues of smallest imaginary part (nonsymmetric or complex ``A`` only)
+     ``:BE``   compute half of the eigenvalues from each end of the spectrum, biased in favor of the high end. (real symmetric ``A`` only)
+     ========= ======================================================================================================================
 
-    * ``tol``: tolerance (:math:`tol \le 0.0` defaults to ``DLAMCH('EPS')``)
-    * ``maxiter``: Maximum number of iterations (default = 300)
-    * ``sigma``: Specifies the level shift used in inverse iteration. If ``nothing`` (default), defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma`` using shift and invert iterations.
-    * ``ritzvec``: Returns the Ritz vectors ``v`` (eigenvectors) if ``true``
-    * ``v0``: starting vector from which to start the iterations
+   * ``tol``: tolerance (:math:`tol \le 0.0` defaults to ``DLAMCH('EPS')``)
+   * ``maxiter``: Maximum number of iterations (default = 300)
+   * ``sigma``: Specifies the level shift used in inverse iteration. If ``nothing`` (default), defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma`` using shift and invert iterations.
+   * ``ritzvec``: Returns the Ritz vectors ``v`` (eigenvectors) if ``true``
+   * ``v0``: starting vector from which to start the iterations
 
    ``eigs`` returns the ``nev`` requested eigenvalues in ``d``, the corresponding Ritz vectors ``v`` (only if ``ritzvec=true``), the number of converged eigenvalues ``nconv``, the number of iterations ``niter`` and the number of matrix vector multiplications ``nmult``, as well as the final residual vector ``resid``.
 
@@ -1012,11 +1019,12 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    Uses :func:`eigs` underneath.
 
    Inputs are:
-    * ``A``: Linear operator. It can either subtype of ``AbstractArray`` (e.g., sparse matrix) or duck typed. For duck typing ``A`` has to support ``size(A)``, ``eltype(A)``, ``A * vector`` and ``A' * vector``.
-    * ``nsv``: Number of singular values.
-    * ``ritzvec``: Whether to return the left and right singular vectors ``left_sv`` and ``right_sv``, default is ``true``. If ``false`` the singular vectors are omitted from the output.
-    * ``tol``: tolerance, see :func:`eigs`.
-    * ``maxiter``: Maximum number of iterations, see :func:`eigs`.
+
+   * ``A``: Linear operator. It can either subtype of ``AbstractArray`` (e.g., sparse matrix) or duck typed. For duck typing ``A`` has to support ``size(A)``, ``eltype(A)``, ``A * vector`` and ``A' * vector``.
+   * ``nsv``: Number of singular values.
+   * ``ritzvec``: Whether to return the left and right singular vectors ``left_sv`` and ``right_sv``, default is ``true``. If ``false`` the singular vectors are omitted from the output.
+   * ``tol``: tolerance, see :func:`eigs`.
+   * ``maxiter``: Maximum number of iterations, see :func:`eigs`.
 
    **Example**::
 
