@@ -892,7 +892,7 @@ Mathematical Functions
    .. Docstring generated from Julia source
 
    ``round(x)`` rounds ``x`` to an integer value according to the default
-   rounding mode (see :func:`get_rounding`), returning a value of the same type as
+   rounding mode (see :func:`rounding`), returning a value of the same type as
    ``x``. By default (:obj:`RoundNearest`), this will round to the nearest
    integer, with ties (fractional values of 0.5) being rounded to the even
    integer.
@@ -1070,7 +1070,13 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Absolute value of ``x``
+   The absolute value of ``x``\ .  When ``abs`` is applied to signed integers, overflow may occur, resulting in the return of a negative value.  This overflow occurs only when ``abs`` is applied to the minimum representable value of a signed integer.  That is when ``x == typemin(typeof(x))``\ , ``abs(x) == x``\ , not ``-x`` as might be expected.
+
+.. function:: Base.checked_abs(x::Signed)
+
+   .. Docstring generated from Julia source
+
+   The absolute value of ``x``\ , with signed integer overflow error trapping. ``checked_abs`` will throw an ``OverflowError`` when ``x == typemin(typeof(x))``\ . Otherwise ``checked_abs`` behaves as ``abs``\ , though the overflow protection may impose a perceptible performance penalty.
 
 .. function:: abs2(x)
 

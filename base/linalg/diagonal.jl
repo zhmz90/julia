@@ -5,7 +5,7 @@
 immutable Diagonal{T} <: AbstractMatrix{T}
     diag::Vector{T}
 end
-Diagonal(A::Matrix) = Diagonal(diag(A))
+Diagonal(A::AbstractMatrix) = Diagonal(diag(A))
 
 convert{T}(::Type{Diagonal{T}}, D::Diagonal{T}) = D
 convert{T}(::Type{Diagonal{T}}, D::Diagonal) = Diagonal{T}(convert(Vector{T}, D.diag))
@@ -121,7 +121,10 @@ function A_ldiv_B!{T}(D::Diagonal{T}, V::AbstractMatrix{T})
         if d == zero(T)
             throw(SingularException(i))
         end
-        V[i,:] *= inv(d)
+        d⁻¹ = inv(d)
+        for j=1:size(V,2)
+            @inbounds V[i,j] *= d⁻¹
+        end
     end
     V
 end
@@ -163,9 +166,9 @@ function A_ldiv_B!(D::Diagonal, B::StridedVecOrMat)
     end
     return B
 end
-\(D::Diagonal, B::StridedMatrix) = scale(1 ./ D.diag, B)
-\(D::Diagonal, b::StridedVector) = reshape(scale(1 ./ D.diag, reshape(b, length(b), 1)), length(b))
-\(Da::Diagonal, Db::Diagonal) = Diagonal(Db.diag ./ Da.diag)
+(\)(D::Diagonal, B::AbstractMatrix) = scale(1 ./ D.diag, B)
+(\)(D::Diagonal, b::AbstractVector) = reshape(scale(1 ./ D.diag, reshape(b, length(b), 1)), length(b))
+(\)(Da::Diagonal, Db::Diagonal) = Diagonal(Db.diag ./ Da.diag)
 
 function inv{T}(D::Diagonal{T})
     Di = similar(D.diag)

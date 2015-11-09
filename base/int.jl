@@ -44,7 +44,40 @@ copysign(x::Signed, y::Float64) = copysign(x, reinterpret(Int64,y))
 copysign(x::Signed, y::Real)    = copysign(x, -oftype(x,signbit(y)))
 
 abs(x::Unsigned) = x
+
+"""
+    abs(x)
+
+The absolute value of `x`.  When `abs` is applied to signed integers,
+overflow may occur, resulting in the return of a negative value.  This
+overflow occurs only when `abs` is applied to the minimum
+representable value of a signed integer.  That is when `x ==
+typemin(typeof(x))`, `abs(x) == x`, not `-x` as might be expected.
+"""
 abs(x::Signed) = flipsign(x,x)
+
+"""
+    Base.checked_abs(x)
+
+The absolute value of `x`, with overflow error trapping where applicable.
+For types for which no overflow can happen during `abs`, this is equivalent
+to `abs(x)`.
+"""
+function checked_abs end
+
+"""
+    Base.checked_abs(x::Signed)
+
+For signed integers, throws an `OverflowError` when `x == typemin(typeof(x))`.
+Otherwise, behaves as `abs`, though the overflow protection may impose a perceptible
+performance penalty.
+"""
+function checked_abs{T<:Signed}(x::T)
+    x == typemin(T) && throw(OverflowError())
+    abs(x)
+end
+
+checked_abs(x::Unsigned) = abs(x)
 
 ~(n::Integer) = -n-1
 

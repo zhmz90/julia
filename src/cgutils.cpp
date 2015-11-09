@@ -242,6 +242,10 @@ public:
             // as codegen may make decisions based on the presence of certain attributes
             NewF->copyAttributesFrom(F);
 
+            // Declarations are not allowed to have personality routines, but
+            // copyAttributesFrom sets them anyway, so clear them again manually
+            NewF->setPersonalityFn(nullptr);
+
             AttributeSet OldAttrs = F->getAttributes();
             // Clone any argument attributes that are present in the VMap.
             auto ArgI = NewF->arg_begin();
@@ -1569,7 +1573,7 @@ static Value *emit_arraylen_prim(Value *t, jl_value_t *ty)
         std::vector<Type *> fargt(0);
         fargt.push_back(T_pjlvalue);
         FunctionType *ft = FunctionType::get(T_size, fargt, false);
-        Value *alen = jl_Module->getOrInsertFunction("jl_array_len_", ft);
+        Value *alen = jl_Module->getOrInsertFunction("jl_array_len_", ft); // TODO: move to codegen init block
         return builder.CreateCall(prepare_call(alen), t);
     }
 #endif

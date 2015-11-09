@@ -328,7 +328,7 @@ Libdl.dlclose
 doc"""
     dlsym_e(handle, sym)
 
-Look up a symbol from a shared library handle, silently return NULL pointer on lookup failure.
+Look up a symbol from a shared library handle, silently return `NULL` pointer on lookup failure.
 """
 Libdl.dlsym_e
 
@@ -1044,13 +1044,6 @@ Compute the minimum absolute values over the singleton dimensions of `r`, and wr
 minabs!
 
 doc"""
-    prevprod([k_1,k_2,...], n)
-
-Previous integer not greater than `n` that can be written as $\prod k_i^{p_i}$ for integers $p_1$, $p_2$, etc.
-"""
-prevprod
-
-doc"""
     @evalpoly(z, c...)
 
 Evaluate the polynomial $\sum_k c[k] z^{k-1}$ for the
@@ -1148,34 +1141,6 @@ Get the precision of a floating point number, as defined by the effective number
 precision
 
 doc"""
-    partitions(n)
-
-Generate all integer arrays that sum to `n`. Because the number of partitions can be very large, this function returns an iterator object. Use `collect(partitions(n))` to get an array of all partitions. The number of partitions to generate can be efficiently computed using `length(partitions(n))`.
-"""
-partitions(n::Integer)
-
-doc"""
-    partitions(n, m)
-
-Generate all arrays of `m` integers that sum to `n`. Because the number of partitions can be very large, this function returns an iterator object. Use `collect(partitions(n,m))` to get an array of all partitions. The number of partitions to generate can be efficiently computed using `length(partitions(n,m))`.
-"""
-partitions(n::Integer, m::Integer)
-
-doc"""
-    partitions(array)
-
-Generate all set partitions of the elements of an array, represented as arrays of arrays. Because the number of partitions can be very large, this function returns an iterator object. Use `collect(partitions(array))` to get an array of all partitions. The number of partitions to generate can be efficiently computed using `length(partitions(array))`.
-"""
-partitions(array)
-
-doc"""
-    partitions(array, m)
-
-Generate all set partitions of the elements of an array into exactly m subsets, represented as arrays of arrays. Because the number of partitions can be very large, this function returns an iterator object. Use `collect(partitions(array,m))` to get an array of all partitions. The number of partitions into m subsets is equal to the Stirling number of the second kind and can be efficiently computed using `length(partitions(array,m))`.
-"""
-partitions(array, m::Integer)
-
-doc"""
     readlines(stream)
 
 Read all lines as an array.
@@ -1238,20 +1203,6 @@ For matrices or vectors $A$ and $B$, calculates $Aᴴ / B$
 """
 Ac_rdiv_B
 
-doc"""
-```rst
-..  set_rounding(T, mode)
-
-Set the rounding mode of floating point type ``T``, controlling the
-rounding of basic arithmetic functions (:func:`+`, :func:`-`, :func:`*`,
-:func:`/` and :func:`sqrt`) and type conversion.
-
-Note that this may affect other types, for instance changing the rounding
-mode of ``Float64`` will change the rounding mode of ``Float32``. See
-``get_rounding`` for available modes
-```
-"""
-set_rounding
 
 doc"""
     linspace(start, stop, n=100)
@@ -1335,11 +1286,11 @@ Get the value type of an associative collection type. Behaves similarly to `elty
 valtype
 
 doc"""
-    edit(file::AbstractString, [line])
+    edit(path::AbstractString, [line])
 
-Edit a file optionally providing a line number to edit at. Returns to the julia prompt when you quit the editor.
+Edit a file or directory optionally providing a line number to edit the file at. Returns to the julia prompt when you quit the editor.
 """
-edit(file::AbstractString, line=?)
+edit(path::AbstractString, line=?)
 
 doc"""
     edit(function, [types])
@@ -1700,7 +1651,7 @@ julia> Float32(1/3, RoundUp)
 0.33333334f0
 ```
 
-See `get_rounding` for available rounding modes.
+See `rounding` for available rounding modes.
 """
 Float32
 
@@ -1836,20 +1787,6 @@ doc"""
 Update `collection`, removing elements for which `function` is `false`. For associative collections, the function is passed two arguments (key and value).
 """
 filter!
-
-doc"""
-    schurfact(A) -> Schur
-
-Computes the Schur factorization of the matrix `A`. The (quasi) triangular Schur factor can be obtained from the `Schur` object `F` with either `F[:Schur]` or `F[:T]` and the unitary/orthogonal Schur vectors can be obtained with `F[:vectors]` or `F[:Z]` such that `A=F[:vectors]*F[:Schur]*F[:vectors]'`. The eigenvalues of `A` can be obtained with `F[:values]`.
-"""
-schurfact(A)
-
-doc"""
-    schurfact(A, B) -> GeneralizedSchur
-
-Computes the Generalized Schur (or QZ) factorization of the matrices `A` and `B`. The (quasi) triangular Schur factors can be obtained from the `Schur` object `F` with `F[:S]` and `F[:T]`, the left unitary/orthogonal Schur vectors can be obtained with `F[:left]` or `F[:Q]` and the right unitary/orthogonal Schur vectors can be obtained with `F[:right]` or `F[:Z]` such that `A=F[:left]*F[:S]*F[:right]'` and `B=F[:left]*F[:T]*F[:right]'`. The generalized eigenvalues of `A` and `B` can be obtained with `F[:alpha]./F[:beta]`.
-"""
-schurfact(A, B)
 
 doc"""
     base64decode(string)
@@ -2037,13 +1974,6 @@ Compute hyperbolic sine of `x`
 sinh
 
 doc"""
-    permutations(array)
-
-Generate all permutations of an indexable object. Because the number of permutations can be very large, this function returns an iterator object. Use `collect(permutations(array))` to get an array of all permutations.
-"""
-permutations
-
-doc"""
 ```rst
 ..  ceil([T,] x, [digits, [base]])
 
@@ -2092,24 +2022,6 @@ doc"""
 Reseed the random number generator. If a `seed` is provided, the RNG will give a reproducible sequence of numbers, otherwise Julia will get entropy from the system. For `MersenneTwister`, the `seed` may be a non-negative integer, a vector of `UInt32` integers or a filename, in which case the seed is read from a file. `RandomDevice` does not support seeding.
 """
 srand
-
-doc"""
-```rst
-..  schur(A) -> Schur[:T], Schur[:Z], Schur[:values]
-
-See :func:`schurfact`
-```
-"""
-schur(A)
-
-doc"""
-```rst
-..  schur(A,B) -> GeneralizedSchur[:S], GeneralizedSchur[:T], GeneralizedSchur[:Q], GeneralizedSchur[:Z]
-
-See :func:`schurfact`
-```
-"""
-schur(A,B)
 
 doc"""
     isexecutable(path) -> Bool
@@ -3069,42 +2981,6 @@ Accepts a connection on the given server and returns a connection to the client.
 accept
 
 doc"""
-```rst
-..  ordschur(Q, T, select) -> Schur
-
-Reorders the Schur factorization of a real matrix ``A=Q*T*Q'`` according to the logical array ``select`` returning a Schur object ``F``. The selected eigenvalues appear in the leading diagonal of ``F[:Schur]`` and the the corresponding leading columns of ``F[:vectors]`` form an orthonormal basis of the corresponding right invariant subspace. A complex conjugate pair of eigenvalues must be either both included or excluded via ``select``.
-```
-"""
-ordschur(Q, T, select)
-
-doc"""
-```rst
-..  ordschur(S, select) -> Schur
-
-Reorders the Schur factorization ``S`` of type ``Schur``.
-```
-"""
-ordschur(S::Schur, select)
-
-doc"""
-```rst
-..  ordschur(S, T, Q, Z, select) -> GeneralizedSchur
-
-Reorders the Generalized Schur factorization of a matrix ``(A, B) = (Q*S*Z^{H}, Q*T*Z^{H})`` according to the logical array ``select`` and returns a GeneralizedSchur object ``GS``.  The selected eigenvalues appear in the leading diagonal of both ``(GS[:S], GS[:T])`` and the left and right unitary/orthogonal Schur vectors are also reordered such that ``(A, B) = GS[:Q]*(GS[:S], GS[:T])*GS[:Z]^{H}`` still holds and the generalized eigenvalues of ``A`` and ``B`` can still be obtained with ``GS[:alpha]./GS[:beta]``.
-```
-"""
-ordschur(S, T, Q, Z)
-
-doc"""
-```rst
-..  ordschur(GS, select) -> GeneralizedSchur
-
-Reorders the Generalized Schur factorization of a Generalized Schur object.  See :func:`ordschur`.
-```
-"""
-ordschur(GS::GeneralizedSchur, select)
-
-doc"""
     triu!(M)
 
 Upper triangle of a matrix, overwriting `M` in the process.
@@ -3190,7 +3066,7 @@ doc"""
 ..  round([T,] x, [digits, [base]], [r::RoundingMode])
 
 ``round(x)`` rounds ``x`` to an integer value according to the default
-rounding mode (see :func:`get_rounding`), returning a value of the same type as
+rounding mode (see :func:`rounding`), returning a value of the same type as
 ``x``. By default (:obj:`RoundNearest`), this will round to the nearest
 integer, with ties (fractional values of 0.5) being rounded to the even
 integer.
@@ -3922,7 +3798,7 @@ julia> Float64(pi, RoundUp)
 3.1415926535897936
 ```
 
-See `get_rounding` for available rounding modes.
+See `rounding` for available rounding modes.
 """
 Float64
 
@@ -3949,7 +3825,7 @@ doc"""
 
 Equivalent to ``addprocs(CPU_CORES)``
 
-Note that workers do not run a `.juliarc.jl` startup script, nor do they synchronize their global state
+Note that workers do not run a ``.juliarc.jl`` startup script, nor do they synchronize their global state
 (such as global variables, new method definitions, and loaded modules) with any of the other running processes.
 ```
 """
@@ -4834,15 +4710,6 @@ Suggest that collection `s` reserve capacity for at least `n` elements. This can
 sizehint!
 
 doc"""
-    permute!(v, p)
-
-Permute vector `v` in-place, according to permutation `p`. No checking is done to verify that `p` is a permutation.
-
-To return a new permutation, use `v[p]`. Note that this is generally faster than `permute!(v,p)` for large vectors.
-"""
-permute!
-
-doc"""
     ifelse(condition::Bool, x, y)
 
 Return `x` if `condition` is `true`, otherwise return `y`. This differs from `?` or `if` in that it is an ordinary function, so all the arguments are evaluated first. In some cases, using `ifelse` instead of an `if` statement can eliminate the branch in generated code and provide higher performance in tight loops.
@@ -5013,27 +4880,6 @@ doc"""
 Implemented by cluster managers. It is called on the master process, by `rmprocs`. It should cause the remote worker specified by `pid` to exit. `Base.kill(manager::ClusterManager.....)` executes a remote `exit()` on `pid`
 """
 kill(manager, pid::Int, config::WorkerConfig)
-
-doc"""
-```rst
-..  logm(A)
-
-If ``A`` has no negative real eigenvalue, compute the principal matrix logarithm of ``A``, i.e. the unique matrix :math:`X` such that :math:`e^X = A` and :math:`-\pi < Im(\lambda) < \pi` for all the eigenvalues :math:`\lambda` of :math:`X`. If ``A`` has nonpositive eigenvalues, a warning is printed and whenever possible a nonprincipal matrix function is returned.
-
-If ``A`` is symmetric or Hermitian, its eigendecomposition (:func:`eigfact`) is used, if ``A`` is triangular an improved version of the inverse scaling and squaring method is employed (see [AH12]_ and [AHR13]_). For general matrices, the complex Schur form (:func:`schur`) is computed and the triangular algorithm is used on the triangular factor.
-
-.. [AH12] Awad H. Al-Mohy and Nicholas J. Higham, "Improved inverse  scaling
-   and squaring algorithms for the matrix logarithm", SIAM Journal on
-   Scientific Computing, 34(4), 2012, C153-C169.
-   `doi:10.1137/110852553 <http://dx.doi.org/10.1137/110852553>`_
-.. [AHR13] Awad H. Al-Mohy, Nicholas J. Higham and Samuel D. Relton,
-   "Computing the Fréchet derivative of the matrix logarithm and estimating
-   the condition number", SIAM Journal on Scientific Computing, 35(4), 2013,
-   C394-C410.
-   `doi:10.1137/120885991 <http://dx.doi.org/10.1137/120885991>`_
-```
-"""
-logm
 
 doc"""
     sylvester(A, B, C)
@@ -6009,42 +5855,6 @@ sin
 
 doc"""
 ```rst
-..  ordschur!(Q, T, select) -> Schur
-
-Reorders the Schur factorization of a real matrix ``A=Q*T*Q'``, overwriting ``Q`` and ``T`` in the process. See :func:`ordschur`
-```
-"""
-ordschur!(Q,T,select)
-
-doc"""
-```rst
-..  ordschur!(S, select) -> Schur
-
-Reorders the Schur factorization ``S`` of type ``Schur``, overwriting ``S`` in the process. See :func:`ordschur`
-```
-"""
-ordschur!(S,select)
-
-doc"""
-```rst
-..  ordschur!(S, T, Q, Z, select) -> GeneralizedSchur
-
-Reorders the Generalized Schur factorization of a matrix by overwriting the matrices ``(S, T, Q, Z)`` in the process.  See :func:`ordschur`.
-```
-"""
-ordschur!(S,T,Q,Z,select)
-
-doc"""
-```rst
-..  ordschur!(GS, select) -> GeneralizedSchur
-
-Reorders the Generalized Schur factorization of a Generalized Schur object by overwriting the object with the new factorization.  See :func:`ordschur`.
-```
-"""
-ordschur!(::LinAlg.GeneralizedSchur,select)
-
-doc"""
-```rst
 ..  Base.compilecache(module::ByteString)
 
 Creates a precompiled cache file for module (see help for ``require``) and all of its dependencies. This can be used to reduce package load times. Cache files are stored in ``LOAD_CACHE_PATH[1]``, which defaults to ``~/.julia/lib/VERSION``. See :ref:`Module initialization and precompilation <man-modules-initialization-precompilation>` for important notes.
@@ -6072,20 +5882,6 @@ doc"""
 Returns an array of lowered ASTs for the methods matching the given generic function and type signature.
 """
 code_lowered
-
-doc"""
-    nthperm(v, k)
-
-Compute the kth lexicographic permutation of a vector.
-"""
-nthperm(v,k)
-
-doc"""
-    nthperm(p)
-
-Return the `k` that generated permutation `p`. Note that `nthperm(nthperm([1:n], k)) == k` for `1 <= k <= factorial(n)`.
-"""
-nthperm(p)
 
 doc"""
     values(collection)
@@ -6347,7 +6143,7 @@ isreadonly
 
 doc"""
 ```rst
-..  get_rounding(T)
+..  rounding(T)
 
 Get the current floating point rounding mode for type ``T``, controlling
 the rounding of basic arithmetic functions (:func:`+`, :func:`-`,
@@ -6357,7 +6153,7 @@ Valid modes are ``RoundNearest``, ``RoundToZero``, ``RoundUp``,
 ``RoundDown``, and ``RoundFromZero`` (``BigFloat`` only).
 ```
 """
-get_rounding
+rounding
 
 doc"""
 ```rst
@@ -6572,18 +6368,33 @@ Like `broadcast_function`, but for `broadcast!`.
 broadcast!_function
 
 doc"""
-    with_rounding(f::Function, T, mode)
+```rst
+..  setrounding(T, mode)
+
+Set the rounding mode of floating point type ``T``, controlling the
+rounding of basic arithmetic functions (:func:`+`, :func:`-`, :func:`*`,
+:func:`/` and :func:`sqrt`) and type conversion.
+
+Note that this may affect other types, for instance changing the rounding
+mode of ``Float64`` will change the rounding mode of ``Float32``. See
+``rounding`` for available modes
+```
+"""
+setrounding(T, mode)
+
+doc"""
+    setrounding(f::Function, T, mode)
 
 Change the rounding mode of floating point type `T` for the duration of `f`. It is logically equivalent to:
 
-    old = get_rounding(T)
-    set_rounding(T, mode)
+    old = rounding(T)
+    setrounding(T, mode)
     f()
-    set_rounding(T, old)
+    setrounding(T, old)
 
-See `get_rounding` for available rounding modes.
+See `rounding` for available rounding modes.
 """
-with_rounding
+setrounding(f::Function, T, mode)
 
 doc"""
     sleep(seconds)
@@ -6673,15 +6484,6 @@ ERROR: ArgumentError: indices must be unique and sorted
 ```
 """
 deleteat!(collection, itr)
-
-doc"""
-```rst
-..  schurfact!(A)
-
-Computes the Schur factorization of ``A``, overwriting ``A`` in the process. See :func:`schurfact`
-```
-"""
-schurfact!
 
 doc"""
     read(stream, type)
@@ -7120,13 +6922,6 @@ Sum absolute values of elements of `A` over the singleton dimensions of `r`, and
 sumabs!
 
 doc"""
-    abs(x)
-
-Absolute value of `x`
-"""
-abs
-
-doc"""
     Sys.set_process_title(title::AbstractString)
 
 Set the process title. No-op on some operating systems. (not exported)
@@ -7434,13 +7229,6 @@ Set environment variables to use when running the given `command`. `env` is eith
 The `dir` keyword argument can be used to specify a working directory for the command.
 """
 setenv
-
-doc"""
-    invperm(v)
-
-Return the inverse permutation of v.
-"""
-invperm
 
 doc"""
     lowercase(string)
@@ -7907,13 +7695,6 @@ The inverse of `ind2sub`, returns the linear index corresponding to the provided
 sub2ind
 
 doc"""
-    isperm(v) -> Bool
-
-Returns `true` if `v` is a valid permutation.
-"""
-isperm
-
-doc"""
     super(T::DataType)
 
 Return the supertype of DataType `T`.
@@ -7949,11 +7730,11 @@ Join path components into a full path. If some argument is an absolute path, the
 joinpath
 
 doc"""
-    get_bigfloat_precision()
+    precision(BigFloat)
 
 Get the precision (in bits) currently used for `BigFloat` arithmetic.
 """
-get_bigfloat_precision
+precision(::Type{BigFloat})
 
 doc"""
     homedir() -> AbstractString
@@ -8209,13 +7990,6 @@ doc"""
 Register a function `f(x)` to be called when there are no program-accessible references to `x`. The behavior of this function is unpredictable if `x` is of a bits type.
 """
 finalizer
-
-doc"""
-    nextprod([k_1,k_2,...], n)
-
-Next integer not less than `n` that can be written as $\prod k_i^{p_i}$ for integers $p_1$, $p_2$, etc.
-"""
-nextprod
 
 doc"""
     <<(x, n)
@@ -8582,16 +8356,16 @@ Compute $e^x$.
 exp
 
 doc"""
-    with_bigfloat_precision(f::Function,precision::Integer)
+    setprecision(f::Function, precision::Integer)
 
 Change the `BigFloat` arithmetic precision (in bits) for the duration of `f`. It is logically equivalent to:
 
-    old = get_bigfloat_precision()
-    set_bigfloat_precision(precision)
+    old = precision(BigFloat)
+    setprecision(BigFloat, precision)
     f()
-    set_bigfloat_precision(old)
+    setprecision(BigFloat, old)
 """
-with_bigfloat_precision
+setprecision
 
 doc"""
     searchindex(string, substring, [start])
@@ -9668,11 +9442,11 @@ Test whether a vector is in sorted order. The `by`, `lt` and `rev` keywords modi
 issorted
 
 doc"""
-    set_bigfloat_precision(x::Int64)
+    setprecision(x::Int64)
 
 Set the precision (in bits) to be used to `BigFloat` arithmetic.
 """
-set_bigfloat_precision
+setprecision
 
 doc"""
     isbits(T)
@@ -9957,13 +9731,6 @@ doc"""
 The smallest power of two not less than `n`. Returns 0 for `n==0`, and returns `-nextpow2(-n)` for negative arguments.
 """
 nextpow2
-
-doc"""
-    ipermute!(v, p)
-
-Like permute!, but the inverse of the given permutation is applied.
-"""
-ipermute!
 
 doc"""
 ```rst
@@ -10332,13 +10099,6 @@ An iterator that generates at most the first `n` elements of `iter`.
 take
 
 doc"""
-    combinations(array, n)
-
-Generate all combinations of `n` elements from an indexable object. Because the number of combinations can be very large, this function returns an iterator object. Use `collect(combinations(array,n))` to get an array of all combinations.
-"""
-combinations
-
-doc"""
     frexp(val)
 
 Return `(x,exp)` such that `x` has a magnitude in the interval $[1/2, 1)$ or 0,
@@ -10579,15 +10339,6 @@ doc"""
 Tests whether a character is a lowercase letter, or whether this is true for all elements of a string. A character is classified as lowercase if it belongs to Unicode category Ll, Letter: Lowercase.
 """
 islower
-
-doc"""
-```rst
-..  nthperm!(v, k)
-
-In-place version of :func:`nthperm`.
-```
-"""
-nthperm!
 
 doc"""
     cell(dims)

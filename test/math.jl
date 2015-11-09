@@ -647,7 +647,7 @@ end
 for n = 0:28
     @test log(2,2^n) == n
 end
-with_bigfloat_precision(10_000) do
+setprecision(10_000) do
     @test log(2,big(2)^100) == 100
     @test log(2,big(2)^200) == 200
     @test log(2,big(2)^300) == 300
@@ -681,3 +681,8 @@ end
 @test_throws DomainError 2 ^ -2
 @test_throws DomainError (-2)^(2.2)
 @test_throws DomainError (-2.0)^(2.2)
+
+# issue #13748
+let A = [1 2; 3 4]; B = [5 6; 7 8]; C = [9 10; 11 12]
+    @test muladd(A,B,C) == A*B + C
+end

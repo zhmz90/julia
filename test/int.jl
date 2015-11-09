@@ -125,7 +125,7 @@ end
 
 # checked operations
 
-import Base: checked_add, checked_sub, checked_mul
+import Base: checked_add, checked_sub, checked_mul, checked_abs
 @test checked_sub(UInt(4), UInt(3)) === UInt(1)
 @test_throws OverflowError checked_sub(UInt(5), UInt(6))
 @test checked_mul(UInt(4), UInt(3)) === UInt(12)
@@ -137,6 +137,17 @@ if WORD_SIZE == 32
 else
     @test_throws OverflowError checked_mul(UInt(2)^62, UInt(2)^2)
 end
+
+for T in SItypes
+    @test checked_abs(-one(T)) == one(T)
+    @test_throws OverflowError checked_abs(typemin(T))
+end
+
+for T in UItypes
+    @test checked_abs(one(T)) == one(T)
+end
+
+@test checked_abs(BigInt(-1)) == BigInt(1)
 
 # Checked operations on UInt128 are currently broken
 # FIXME: #4905
